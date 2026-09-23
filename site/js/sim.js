@@ -10,7 +10,7 @@ import { ConfigNode } from "./props/config.js";
 import { PropertyRuleGroup } from "./systems/autopilot.js";
 import { InstrumentManager } from "./instruments/fginstruments.js";
 import { C172P } from "./aircraft/c172p.js";
-import { updateTweens } from "./props/sgexpr.js";
+import { updateTweens, clearTweens } from "./props/sgexpr.js";
 
 export class Simulation {
   /**
@@ -27,10 +27,14 @@ export class Simulation {
 
   /**
    * start: {lat, lon, headingDeg, onGround, altitudeFt, speedKts, running,
-   *         fuel (0..1), utcSeconds, wind: {fromDeg, kt}}
+   *         fuel (0..1), utcMs (epoch ms; default now), wind: {fromDeg, kt},
+   *         visibilityM, flaps (0..1)}
    */
   start(start) {
-    const props = (this.props = new PropertyTree(this.jsb));
+    // One property tree for the whole session: handles re-resolve when the
+    // FDM is recreated, so the 3D model and scripts keep working on reset.
+    const props = (this.props ??= new PropertyTree(this.jsb));
+    clearTweens();
     this.fdm = new FDMInterface(this.jsb, props);
     this.aircraft = new C172P(props);
     this.startCfg = start;
@@ -72,9 +76,11 @@ export class Simulation {
     const p = this.props;
     const wind = start.wind ?? { fromDeg: 0, kt: 0 };
     this.setWind(wind.fromDeg, wind.kt);
-    p.set("/sim/time/utc/day-seconds", start.utcSeconds ?? 20 * 3600);
+    this.utcMs = start.utcMs ?? Date.now();
+    p.set("/sim/time/utc/day-seconds", (this.utcMs / 1000) % 86400);
     p.set("/environment/visibility-m", start.visibilityM ?? 30000);
     p.set("/environment/pressure-sea-level-inhg", 29.92);
+    if (start.flaps) p.set("/controls/flight/flaps", start.flaps);
     const mv = this.jsb.magvar(start.lat, start.lon, 0);
     this.fdm.magvar = mv;
     p.set("/environment/magnetic-variation-deg", mv);
@@ -104,6 +110,17 @@ export class Simulation {
     p.set("/environment/magnetic-dip-deg", this.jsb.magdip(lat, lon, alt));
   }
 
+  /** The simulation's UTC time as a Date. */
+  get date() {
+    return new Date(this.utcMs);
+  }
+
+  /** Moves the clock (FlightGear's time warp). */
+  warpTime(seconds) {
+    this.utcMs += seconds * 1000;
+    this.props.set("/sim/time/utc/day-seconds", (((this.utcMs / 1000) % 86400) + 86400) % 86400);
+  }
+
   update(dt, { paused = false, speedUp = 1 } = {}) {
     const p = this.props;
     p.set("/sim/time/delta-realtime-sec", dt);
@@ -115,7 +132,8 @@ export class Simulation {
     this.elapsed += simDt;
     p.set("/sim/time/delta-sec", simDt);
     p.set("/sim/time/elapsed-sec", this.elapsed);
-    p.set("/sim/time/utc/day-seconds", (p.get("/sim/time/utc/day-seconds") + simDt) % 86400);
+    this.utcMs += simDt * 1000;
+    p.set("/sim/time/utc/day-seconds", (this.utcMs / 1000) % 86400);
     updateTweens(p, simDt);
     this.aircraft.update(simDt);
     for (const r of this.rules) r.update(simDt);

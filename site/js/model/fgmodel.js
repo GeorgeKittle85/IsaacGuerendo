@@ -11,6 +11,7 @@ import * as THREE from "three";
 import { parseAC, buildAC } from "./ac3d.js";
 import { ConfigNode } from "../props/config.js";
 import { absPath, readCondition, readExpression, readInterpTable, readBindings } from "../props/sgexpr.js";
+import { sprintf } from "../nasal/nasal.js";
 
 const D2R = Math.PI / 180;
 
@@ -313,7 +314,7 @@ export class FGModel {
 
 /**
  * Loads a model (by manifest key) with all submodels and animations.
- * ctx: {props, base, nasal(node) -> fn, commands}
+ * ctx: {props, base, nasal (NasalRuntime), commands}
  */
 export async function loadModel(lib, key, ctx) {
   const model = new FGModel();
@@ -623,26 +624,74 @@ function createAnimation(cfg, root, ctx, model) {
   }
 }
 
-/** Clickable objects: <action>/<increase>/<decrease> bindings, per button. */
+/** set-tooltip hover binding -> () => text (FlightGear's tooltip command). */
+function readTooltip(props, base, bnode, nasal) {
+  if (!bnode || bnode.getStringValue("command", "").trim() !== "set-tooltip") return null;
+  const label = bnode.getStringValue("label", "");
+  const pn = bnode.getChild("property");
+  const path = pn ? absPath(pn.getStringValue().trim(), base) : null;
+  const mapping = bnode.getStringValue("mapping", "").trim();
+  const script = mapping === "nasal" ? bnode.getStringValue("script", "") : "";
+  const fn = script && nasal ? nasal.compile(script) : null;
+  return () => {
+    let v = path ? (props.jsb.propType(props.jsb.handle(path, false)) === 4 ? props.getString(path) : props.get(path)) : null;
+    if (mapping === "percent") v = Math.round(v * 100);
+    else if (mapping === "heading") v = ((Math.round(v) % 360) + 360) % 360;
+    else if (mapping === "on-off") v = v ? "ON" : "OFF";
+    else if (mapping === "arm-disarm") v = v ? "ARMED" : "DISARMED";
+    else if (fn) v = fn(v);
+    if (v === null || !/%/.test(label)) return label.replace(/%%/g, "%");
+    return sprintf(label, v);
+  };
+}
+
+/**
+ * Clickable objects (SGPickAnimation): plain picks fire <action> bindings
+ * for their buttons (repeating while held when repeatable, <mod-up> on
+ * release); knobs and sliders increase/decrease on click, wheel and drag.
+ */
 function addPick(cfg, groups, ctx, model, isKnob) {
   const { props, base } = ctx;
   const cond = cfg.getChild("condition") ? readCondition(props, cfg.getChild("condition"), base) : null;
-  const bctx = { nasal: ctx.nasal, commands: ctx.commands };
-  const actions = cfg.getChildren("action").map((a) => ({
-    buttons: a.getChildren("button").map((b) => b.getIntValue()),
-    repeatable: a.getBoolValue("repeatable", false),
-    interval: a.getDoubleValue("interval-sec", 0.1),
-    down: readBindings(props, a.getChildren("binding"), base, bctx),
-    up: readBindings(props, a.getChild("mod-up")?.getChildren("binding") ?? [], base, bctx),
-  }));
-  const knob = isKnob ? {
-    increase: readBindings(props, cfg.getChild("increase")?.getChildren("binding") ?? [], base, bctx),
-    decrease: readBindings(props, cfg.getChild("decrease")?.getChildren("binding") ?? [], base, bctx),
-    action: readBindings(props, cfg.getChild("action")?.getChildren("binding") ?? [], base, bctx),
-  } : null;
-  const tip = cfg.getChild("hovered")?.getChild("binding")?.getStringValue("label", "") ?? "";
+  const bctx = { nasal: ctx.nasal ? (n) => ctx.nasal.binding(n) : null, commands: ctx.commands };
+  const list = (node) => readBindings(props, node?.getChildren("binding") ?? [], base, bctx);
+  let actions = null;
+  let knob = null;
+  if (isKnob) {
+    const shiftRepeat = cfg.getIntValue("shift-repeat", 10);
+    const action = list(cfg.getChild("action"));
+    const increase = list(cfg.getChild("increase"));
+    const decrease = list(cfg.getChild("decrease"));
+    const explicitShift = cfg.hasChild("shift-action") || cfg.hasChild("shift-increase") || cfg.hasChild("shift-decrease");
+    const sAction = list(cfg.getChild("shift-action"));
+    const sIncrease = list(cfg.getChild("shift-increase"));
+    const sDecrease = list(cfg.getChild("shift-decrease"));
+    const once = (dir, a, inc, dec) => {
+      if (dir > 0) { a(1); inc(); } else { a(-1); dec(); }
+    };
+    knob = {
+      fire(dir, shifted) {
+        if (!shifted) once(dir, action, increase, decrease);
+        else if (explicitShift) once(dir, sAction, sIncrease, sDecrease);
+        else for (let i = 0; i < shiftRepeat; i++) once(dir, action, increase, decrease);
+      },
+      release: list(cfg.getChild("release")),
+      interval: cfg.getDoubleValue("interval-sec", 0.1),
+      dragScale: cfg.getDoubleValue("drag-scale-px", 10),
+      dragDirection: cfg.getStringValue("drag-direction", "horizontal").trim() || "horizontal",
+    };
+  } else {
+    actions = cfg.getChildren("action").map((a) => ({
+      buttons: new Set(a.getChildren("button").map((b) => b.getIntValue())),
+      repeatable: a.getBoolValue("repeatable", false),
+      interval: a.getDoubleValue("interval-sec", 0.1),
+      down: list(a),
+      up: list(a.getChild("mod-up")),
+    }));
+  }
+  const tooltip = readTooltip(props, base, cfg.getChild("hovered")?.getChild("binding"), ctx.nasal);
   for (const g of groups) {
-    const pick = { group: g, actions, knob, tooltip: tip.trim(), enabled: () => !cond || cond() };
+    const pick = { group: g, actions, knob, tooltip, enabled: () => !cond || cond() };
     g.userData.pick = pick;
     model.picks.push(pick);
   }

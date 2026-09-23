@@ -143,16 +143,25 @@ class CollisionGrid {
     each((c, mi, t) => { this.items[fill[c]++] = (t << 1) | mi; });
   }
 
-  /** Ray (origin o, direction d, tile ENU) -> {t, mesh, tri} of the nearest hit above t=-1e4. */
-  cast(o, d) {
-    const cx = Math.floor((o[0] - this.minX) / this.cell);
-    const cy = Math.floor((o[1] - this.minY) / this.cell);
+  /**
+   * Ray (origin o, direction d, tile ENU) -> {t, mesh, tri} of the highest
+   * hit.  The ray is nearly vertical, so only the cells it crosses between
+   * the tile's lowest and highest points are searched.
+   */
+  cast(o, d, zmin = -500, zmax = 5000) {
+    const t0 = (zmin - o[2]) / d[2], t1 = (zmax - o[2]) / d[2];
+    const xa = o[0] + d[0] * t0, xb = o[0] + d[0] * t1;
+    const ya = o[1] + d[1] * t0, yb = o[1] + d[1] * t1;
+    const c = this.cell;
+    const cx0 = Math.max(0, Math.floor((Math.min(xa, xb) - this.minX) / c));
+    const cx1 = Math.min(this.nx - 1, Math.floor((Math.max(xa, xb) - this.minX) / c));
+    const cy0 = Math.max(0, Math.floor((Math.min(ya, yb) - this.minY) / c));
+    const cy1 = Math.min(this.ny - 1, Math.floor((Math.max(ya, yb) - this.minY) / c));
     let best = null;
-    for (let yy = cy - 1; yy <= cy + 1; yy++) {
-      for (let xx = cx - 1; xx <= cx + 1; xx++) {
-        if (xx < 0 || yy < 0 || xx >= this.nx || yy >= this.ny) continue;
-        const c = yy * this.nx + xx;
-        for (let k = this.start[c]; k < this.start[c + 1]; k++) {
+    for (let yy = cy0; yy <= cy1; yy++) {
+      for (let xx = cx0; xx <= cx1; xx++) {
+        const cc = yy * this.nx + xx;
+        for (let k = this.start[cc]; k < this.start[cc + 1]; k++) {
           const item = this.items[k];
           const mi = item & 1;
           const t = item >>> 1;
@@ -238,6 +247,15 @@ class Tile {
     }
     this.meshes = meshes;
     this.grid = new CollisionGrid(meshes);
+    let zmin = Infinity, zmax = -Infinity;
+    for (const m of meshes) {
+      for (let i = 2; i < m.pos.length; i += 3) {
+        if (m.pos[i] < zmin) zmin = m.pos[i];
+        if (m.pos[i] > zmax) zmax = m.pos[i];
+      }
+    }
+    this.zmin = zmin;
+    this.zmax = zmax;
   }
 
   materialOf(meshIndex, tri) {
@@ -259,7 +277,7 @@ class Tile {
     const o = [e[0] * d0 + e[1] * d1 + e[2] * d2, n[0] * d0 + n[1] * d1 + n[2] * d2, u[0] * d0 + u[1] * d1 + u[2] * d2];
     const d = [e[0] * up[0] + e[1] * up[1] + e[2] * up[2], n[0] * up[0] + n[1] * up[1] + n[2] * up[2],
       u[0] * up[0] + u[1] * up[1] + u[2] * up[2]];
-    const hit = this.grid.cast(o, d);
+    const hit = this.grid.cast(o, d, this.zmin - 5, this.zmax + 5);
     if (!hit) return null;
     const m = this.meshes[hit.mesh];
     const p = m.pos, ix = m.idx, t = hit.tri;
@@ -336,6 +354,15 @@ export class SceneryManager {
       this.materials.set(key, m);
     }
     return m;
+  }
+
+  /** Re-anchors every loaded tile to a new render frame. */
+  setFrame(frame) {
+    this.frame = frame;
+    for (const t of this.tiles.values()) {
+      t.group.matrix.copy(frame.enuMatrixAtEcef(t.data.center, t.data.lat, t.data.lon));
+      t.group.matrixWorldNeedsUpdate = true;
+    }
   }
 
   tileAt(lat, lon) {

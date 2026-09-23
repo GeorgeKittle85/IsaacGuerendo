@@ -14,7 +14,8 @@ export const sceneryUniforms = {
   fogDensity: { value: 0.00004 },
   night: { value: 0 },
   time: { value: 0 },
-  cameraPos: { value: new THREE.Vector3() },
+  glowColor: { value: new THREE.Color(0, 0, 0) },
+  upDir: { value: new THREE.Vector3(0, 1, 0) },
 };
 
 const COMMON_VERTEX = /* glsl */ `
@@ -34,23 +35,35 @@ const COMMON_FRAGMENT = /* glsl */ `
   uniform vec3 fogColor;
   uniform float fogDensity;
   uniform float night;
+  uniform vec3 glowColor;
   varying vec3 vNormalW;
   varying vec3 vWorldPos;
   varying float vDist;
 
+  // Haze colour toward a view direction: the sky's horizon colour plus the
+  // sun's forward-scattering glow (matches sky.js at the horizon).
+  vec3 hazeColor(vec3 viewDir) {
+    float c = max(dot(viewDir, sunDir), 0.0);
+    return fogColor + glowColor * (pow(c, 6.0) + 0.8 * pow(c, 80.0));
+  }
+
   vec3 applyFog(vec3 col) {
     float f = 1.0 - exp(-fogDensity * fogDensity * vDist * vDist);
-    return mix(col, fogColor, clamp(f, 0.0, 1.0));
+    return mix(col, hazeColor(normalize(vWorldPos - cameraPosition)), clamp(f, 0.0, 1.0));
   }
 `;
 
 const VERTEX = /* glsl */ `
   ${COMMON_VERTEX}
   uniform vec2 texScale;
+  uniform float lift;
   varying vec2 vUv;
   varying vec2 vUv2;
   void main() {
-    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+    // Painted lines lie on the pavement; lift them a few centimetres (the
+    // logarithmic depth buffer ignores polygon offset).
+    vec3 p = position + normal * lift;
+    vec4 worldPos = modelMatrix * vec4(p, 1.0);
     vWorldPos = worldPos.xyz;
     vNormalW = normalize(mat3(modelMatrix) * normal);
     #ifdef USE_UV_ATTR
@@ -62,7 +75,7 @@ const VERTEX = /* glsl */ `
       vUv = en * texScale;
       vUv2 = mat2(0.8, -0.6, 0.6, 0.8) * en * texScale * 0.23;
     #endif
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    vec4 mvPosition = modelViewMatrix * vec4(p, 1.0);
     vDist = length(mvPosition.xyz);
     gl_Position = projectionMatrix * mvPosition;
     #include <logdepthbuf_vertex>
@@ -157,6 +170,7 @@ function baseUniforms() {
     fogDensity: sceneryUniforms.fogDensity,
     night: sceneryUniforms.night,
     time: sceneryUniforms.time,
+    glowColor: sceneryUniforms.glowColor,
   };
 }
 
@@ -169,6 +183,7 @@ export function createMaterial(def, texture, hasUv) {
     map: { value: texture },
     hasMap: { value: texture ? 1 : 0 },
     texScale: { value: new THREE.Vector2(1 / (def.xsize || 1000), 1 / (def.ysize || 1000)) },
+    lift: { value: def.kind === "marking" ? 0.06 : 0 },
   };
   const defines = hasUv ? { USE_UV_ATTR: "" } : {};
   if (def.kind === "water") {
@@ -183,14 +198,7 @@ export function createMaterial(def, texture, hasUv) {
   uniforms.emissive = { value: linear(e) };
   uniforms.alphaTest = { value: def.kind === "marking" ? 0.3 : 0.0 };
   uniforms.specular = { value: def.kind === "runway" ? 0.08 : 0.0 };
-  const mat = new THREE.ShaderMaterial({
+  return new THREE.ShaderMaterial({
     name: def.name, uniforms, defines, vertexShader: VERTEX, fragmentShader: TERRAIN_FRAGMENT,
   });
-  if (def.kind === "marking" || def.kind === "runway") {
-    // Painted markings sit exactly on the pavement: pull them forward.
-    mat.polygonOffset = true;
-    mat.polygonOffsetFactor = def.kind === "marking" ? -4 : -2;
-    mat.polygonOffsetUnits = def.kind === "marking" ? -4 : -2;
-  }
-  return mat;
 }

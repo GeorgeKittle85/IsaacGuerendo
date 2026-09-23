@@ -345,6 +345,10 @@ export function readInputValueList(props, nodes, base = "/", defValue = 0) {
 /** Active property-interpolate tweens, advanced by updateTweens(dt). */
 const tweens = new Map();
 
+export function clearTweens() {
+  tweens.clear();
+}
+
 export function updateTweens(props, dt) {
   for (const [path, tw] of tweens) {
     tw.t += dt;
@@ -406,14 +410,16 @@ export function readBinding(props, node, base = "/", ctx = {}) {
       return () => props.toggle(target);
     }
     case "property-adjust": {
+      // fg_commands.cxx do_property_adjust: <step> wins; otherwise
+      // factor * offset, where the offset may come from the caller (knobs
+      // fire their <action> bindings with an offset of +1/-1).
+      const hasStep = !!node.getChild("step");
       const step = node.getDoubleValue("step", 0);
-      const offsetNode = node.getChild("offset");
+      const offset = node.getDoubleValue("offset", 0);
       const factor = node.getDoubleValue("factor", 1);
       const mask = node.getStringValue("mask", "");
-      return (settingDelta = null) => {
-        let d = step;
-        if (offsetNode) d = node.getDoubleValue("offset") * factor;
-        if (settingDelta !== null) d = settingDelta * factor;
+      return (offsetArg = null) => {
+        const d = hasStep ? step : factor * (offsetArg ?? offset);
         let v = props.get(target) + d;
         if (mask === "integer") v = Math.round(v);
         props.set(target, clampWrap(v));

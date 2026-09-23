@@ -71,12 +71,19 @@ export class FDMInterface {
     }
     // /sim/presets/trim defaults to true in FlightGear: a ground trim settles
     // the aircraft on its gear, an airborne one finds steady level flight.
-    if (start.onGround) {
-      if (!jsb.trim(2)) console.warn("JSBSim ground trim did not converge:", jsb.lastError);
-    } else {
-      if (!jsb.trim(1)) console.warn("JSBSim trim did not converge:", jsb.lastError);
+    const trimmed = jsb.trim(start.onGround ? 2 : 1);
+    if (!trimmed) console.warn("JSBSim trim did not converge:", jsb.lastError);
+    else if (!start.onGround) {
+      // FGJSBsim::do_trim: hand the trimmed controls back to the pilot.
       props.set("/controls/flight/elevator-trim", props.get("fcs/pitch-trim-cmd-norm"));
+      props.set("/controls/flight/elevator", props.get("fcs/elevator-cmd-norm"));
+      props.set("/controls/flight/aileron", props.get("fcs/aileron-cmd-norm"));
+      props.set("/controls/flight/rudder", -props.get("fcs/rudder-cmd-norm"));
+      for (let i = 0; i < this.engines; i++) {
+        props.set(`/controls/engines/engine[${i}]/throttle`, props.get(`fcs/throttle-cmd-norm[${i}]`));
+      }
     }
+    this.trimmed = trimmed;
     this.copyFromJSBSim();
   }
 
