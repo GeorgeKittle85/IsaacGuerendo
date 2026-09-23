@@ -2,3 +2,5 @@ build/
 node_modules/
 *.part
 .DS_Store
+__pycache__/
+*.pyc
