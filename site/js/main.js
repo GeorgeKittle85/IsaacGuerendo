@@ -375,6 +375,7 @@ class App {
     }
     const t0 = performance.now();
     this.input.update(dt);
+    this.onFrame?.(dt); // test hook (tools/e2e)
     const running = !this.paused && !this.menu.isOpen;
     this.sim.fdm.setGroundMaterial(this.scenery.lastMaterial);
     this.sim.update(dt, { paused: !running, speedUp: this.speedUp });

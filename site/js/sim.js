@@ -57,6 +57,14 @@ export class Simulation {
       },
     });
     this.aircraft.init({ running: !!start.running });
+    // One flight-model step so the aircraft's own JSBSim systems (e.g. the
+    // selected static pressure) replace their start-up placeholders before
+    // the instruments start; otherwise the VSI begins with a false climb.
+    const p0 = props.get("/environment/pressure-inhg");
+    for (let i = 0; i < 2; i++) props.set(`/systems/static[${i}]/pressure-inhg`, p0);
+    this.fdm.copyToJSBSim();
+    this.jsb.run(1);
+    this.fdm.copyFromJSBSim();
     this.elapsed = 0;
     this.updateMagneticField();
     // Like FlightGear, instruments start once the flight model has valid

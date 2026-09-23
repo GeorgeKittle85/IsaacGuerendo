@@ -24,6 +24,21 @@ export class Hud {
     return on;
   }
 
+  /** 'h': compact strip -> full strip -> hidden -> compact. */
+  cycle() {
+    if (!this.visible) {
+      this.toggle(true);
+      this.root.classList.remove("full");
+      return "compact";
+    }
+    if (!this.root.classList.contains("full")) {
+      this.root.classList.add("full");
+      return "full";
+    }
+    this.toggle(false);
+    return "off";
+  }
+
   /** gui.popupTip(): a short message at the top of the screen. */
   message(text, seconds = 2.5) {
     const el = document.createElement("div");

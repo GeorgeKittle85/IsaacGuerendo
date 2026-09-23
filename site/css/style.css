@@ -130,6 +130,7 @@ body.paused #btn-pause { background: var(--warn); color: #111; border-color: var
 }
 
 #hud[hidden] { display: none; }
+#hud:not(.full) .extra { display: none; }
 
 #hud .cell {
   display: flex;

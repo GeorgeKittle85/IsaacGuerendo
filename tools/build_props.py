@@ -62,7 +62,9 @@ def main():
 
     values, aliases = [], []
     for path, node in root.walk():
-        if path.startswith(SKIP_PREFIXES):
+        # The 3D model reads some state through the multiplayer aliases
+        # (e.g. nav lights via /sim/multiplay/generic/int[14]); keep those.
+        if path.startswith(SKIP_PREFIXES) and not (node.alias and path.startswith("/sim/multiplay/generic")):
             continue
         if node.alias:
             aliases.append([path, node.alias])

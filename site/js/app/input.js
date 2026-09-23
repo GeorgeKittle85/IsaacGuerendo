@@ -46,7 +46,7 @@ export const HELP = [
     ["t T", "Time of day forward / back (hold)"],
     ["z Z", "Visibility up / down"],
     ["l L", "Panel lights up / down"],
-    ["h", "Flight data strip"],
+    ["h", "Flight data: compact, full, off"],
     ["Esc", "Menu"],
     ["Shift+Esc", "Reset flight"],
     ["? / F1", "This help"],
@@ -98,7 +98,25 @@ export class Input {
   // ------------------------------------------------------------ keyboard
 
   keydown(e) {
-    if (!this.enabled || e.target.closest?.("input, select, textarea, button, dialog")) return;
+    if (!this.enabled) return;
+    const app = this.app;
+    // Overlays first: Esc (or ?/F1 for the key list) closes them; other keys
+    // do not reach the aircraft while a menu is up.
+    if (!document.getElementById("help").hidden) {
+      if (e.key === "Escape" || e.key === "?" || e.key === "F1") {
+        app.toggleHelp(false);
+        e.preventDefault();
+      }
+      return;
+    }
+    if (app.menu?.isOpen) {
+      if (e.key === "Escape" && app.flying) {
+        app.menu.close();
+        e.preventDefault();
+      }
+      return;
+    }
+    if (e.target.closest?.("input, select, textarea")) return;
     const handled = this.handleKey(e);
     if (handled) e.preventDefault();
   }
@@ -178,7 +196,7 @@ export class Input {
       case "T": return this.hold(e, () => { this.warp = -1; }, () => { this.warp = 0; });
       case "z": app.adjustVisibility(1.1); return true;
       case "Z": app.adjustVisibility(1 / 1.1); return true;
-      case "h": if (!e.repeat) app.hud.toggle(); return true;
+      case "h": if (!e.repeat) app.hud.cycle(); return true;
       case "l": this.adjustProp("/controls/lighting/instruments-norm", 0.1); return true;
       case "L": this.adjustProp("/controls/lighting/instruments-norm", -0.1); return true;
       case "o": if (!e.repeat) this.domeLight(); return true;
