@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>FlightGear Web</title>
+  <meta name="description" content="FlightGear in the browser: the JSBSim flight model compiled to WebAssembly flies FlightGear's Cessna 172P over FlightGear's San Francisco Bay Area scenery.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%233b82f6' d='M16 2l3 10 11 4-11 3-3 11-3-11-11-3 11-4z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
+  <script type="module" src="js/main.js"></script>
+</head>
+<body>
+  <canvas id="view" tabindex="0" aria-label="Flight simulator view"></canvas>
+
+  <nav id="toolbar" aria-label="Simulator">
+    <button id="btn-menu" type="button" title="Menu (Esc)">Menu</button>
+    <button id="btn-view" type="button" title="Next view (v)">View</button>
+    <button id="btn-pause" type="button" title="Pause (p)">Pause</button>
+    <button id="btn-sound" type="button" title="Sound on/off">Sound</button>
+    <button id="btn-help" type="button" title="Keys (?)">Keys</button>
+    <button id="btn-full" type="button" title="Full screen">Full screen</button>
+  </nav>
+
+  <div id="hud" hidden>
+    <div class="cell"><span class="k">IAS</span><span class="v" data-k="ias">0</span><span class="u">kt</span></div>
+    <div class="cell"><span class="k">ALT</span><span class="v" data-k="alt">0</span><span class="u">ft</span></div>
+    <div class="cell extra"><span class="k">AGL</span><span class="v" data-k="agl">0</span><span class="u">ft</span></div>
+    <div class="cell"><span class="k">HDG</span><span class="v" data-k="hdg">000</span><span class="u">°M</span></div>
+    <div class="cell"><span class="k">VS</span><span class="v" data-k="vs">0</span><span class="u">fpm</span></div>
+    <div class="cell"><span class="k">THR</span><span class="v" data-k="thr">0%</span></div>
+    <div class="cell extra"><span class="k">RPM</span><span class="v" data-k="rpm">0</span></div>
+    <div class="cell extra"><span class="k">MIX</span><span class="v" data-k="mix">0%</span></div>
+    <div class="cell"><span class="k">FLAPS</span><span class="v" data-k="flaps">0°</span></div>
+    <div class="cell extra"><span class="k">TRIM</span><span class="v" data-k="trim">0</span></div>
+    <div class="cell"><span class="k">BRAKES</span><span class="v" data-k="brk">off</span></div>
+    <div class="cell extra"><span class="k">MAGS</span><span class="v" data-k="mag">OFF</span></div>
+    <div class="cell extra"><span class="k">FUEL</span><span class="v" data-k="fuel">0</span></div>
+    <div class="cell extra wide"><span class="k">VIEW</span><span class="v" data-k="view"></span></div>
+    <div class="cell extra"><span class="k">FPS</span><span class="v" data-k="fps">0</span></div>
+    <div class="cell warn" data-k="warn">STALL</div>
+  </div>
+
+  <div id="messages" aria-live="polite"></div>
+  <div id="tooltip" hidden></div>
+  <div id="status" hidden></div>
+
+  <div id="loading" role="status">
+    <div class="panel">
+      <h1>FlightGear <span>Web</span></h1>
+      <p id="loading-text">Loading…</p>
+      <div class="bar"><div id="loading-bar"></div></div>
+    </div>
+  </div>
+
+  <div id="menu" hidden>
+    <form class="panel" id="menu-form" autocomplete="off">
+      <header>
+        <h1>FlightGear <span>Web</span></h1>
+        <p class="lede">FlightGear's Cessna 172P, flown by the JSBSim flight model compiled to WebAssembly, over FlightGear's own San Francisco Bay Area scenery.</p>
+      </header>
+      <div class="grid">
+        <label>Airport
+          <select id="m-airport"></select>
+        </label>
+        <label>Runway
+          <select id="m-runway"></select>
+        </label>
+        <label class="span2">Start
+          <select id="m-position">
+            <option value="runway">On the runway, engine running</option>
+            <option value="cold">On the runway, cold and dark</option>
+            <option value="final">On final approach, 3 nm out</option>
+            <option value="air">In the air, 3000 ft above the airport</option>
+          </select>
+        </label>
+        <label>Time of day
+          <select id="m-time">
+            <option value="morning">Morning</option>
+            <option value="noon">Noon</option>
+            <option value="afternoon" selected>Afternoon</option>
+            <option value="dusk">Dusk</option>
+            <option value="evening">Evening</option>
+            <option value="midnight">Night</option>
+            <option value="now">Real time</option>
+          </select>
+        </label>
+        <label>Visibility
+          <select id="m-vis">
+            <option value="8000">8 km (hazy)</option>
+            <option value="20000">20 km</option>
+            <option value="35000" selected>35 km</option>
+            <option value="60000">60 km (crystal clear)</option>
+          </select>
+        </label>
+        <label>Wind from (°)
+          <input id="m-wind-dir" type="number" min="0" max="360" step="10" value="280">
+        </label>
+        <label>Wind speed (kt)
+          <input id="m-wind-kt" type="number" min="0" max="40" step="1" value="8">
+        </label>
+        <label class="span2">Scenery range
+          <select id="m-range">
+            <option value="15">15 km (faster)</option>
+            <option value="25" selected>25 km</option>
+            <option value="40">40 km (more detail, needs a strong GPU)</option>
+          </select>
+        </label>
+      </div>
+      <footer>
+        <button id="m-fly" type="submit" class="primary">Fly</button>
+        <button id="m-resume" type="button" hidden>Resume</button>
+        <button id="m-help" type="button">Keys</button>
+      </footer>
+      <p class="credits">
+        Aircraft, scenery and systems: <a href="https://www.flightgear.org/" target="_blank" rel="noopener">FlightGear</a> (GPL).
+        Flight model: <a href="https://github.com/JSBSim-Team/jsbsim" target="_blank" rel="noopener">JSBSim</a> (LGPL).
+        Rendering: <a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>.
+      </p>
+    </form>
+  </div>
+
+  <div id="help" hidden>
+    <div class="panel">
+      <header>
+        <h2>Keys</h2>
+        <button id="help-close" type="button" aria-label="Close">Close</button>
+      </header>
+      <p class="hint">FlightGear's default keyboard bindings. Click switches and knobs in the cockpit; the mouse wheel turns knobs. Gamepads and joysticks work too.</p>
+      <div id="help-body"></div>
+    </div>
+  </div>
+
+  <noscript><p class="noscript">FlightGear Web needs JavaScript and WebGL 2.</p></noscript>
+</body>
+</html>
