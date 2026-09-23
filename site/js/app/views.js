@@ -237,7 +237,8 @@ export class ViewManager {
         near = 1;
         // Keep the aircraft a sensible size on screen (zoom with x/X).
         const dist = T.eye.distanceTo(T.target);
-        hfov = Math.max(0.5, Math.min(60, 2 * Math.atan((40 / s.zoom) / Math.max(1, dist)) * R2D));
+        // Frame about 30 m across at the aircraft (x/X zoom from there).
+        hfov = Math.max(0.3, Math.min(60, 2 * Math.atan((15 / s.zoom) / Math.max(1, dist)) * R2D));
       } else {
         // Fly-by: wait beside the flight path ahead of the aircraft, then jump
         // ahead again once it has gone by (Nasal view.nas flyby).

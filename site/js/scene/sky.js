@@ -98,7 +98,6 @@ const SKY_VERTEX = /* glsl */ `
   void main() {
     vDir = (modelMatrix * vec4(position, 0.0)).xyz;
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    gl_Position.z = gl_Position.w; // far plane
   }
 `;
 
@@ -137,7 +136,6 @@ const STAR_VERTEX = /* glsl */ `
   void main() {
     vec4 mv = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mv;
-    gl_Position.z = gl_Position.w * 0.99999;
     float b = clamp((5.2 - mag) / 6.0, 0.0, 1.0);
     vAlpha = b * visibility;
     gl_PointSize = (1.0 + 2.2 * b * b) * pixelRatio;
@@ -211,8 +209,10 @@ export class Sky {
       pixelRatio: { value: this.renderer.getPixelRatio() },
     };
     const pts = new THREE.Points(geo, new THREE.ShaderMaterial({
+      // Not "transparent": opaque objects draw in renderOrder, so the stars
+      // go right after the sky dome and before the terrain covers them.
       uniforms: this.starUniforms, vertexShader: STAR_VERTEX, fragmentShader: STAR_FRAGMENT,
-      transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
+      transparent: false, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false,
     }));
     pts.frustumCulled = false;
     pts.renderOrder = -999;
@@ -262,6 +262,7 @@ export class Sky {
     su.night.value = Math.min(1, Math.max(0, (2 - elev) / 8));
     su.glowColor.value.copy(lin(k.glow, 1 - haze * 0.5));
     su.upDir.value.copy(up);
+    su.sunElevation.value = elev;
 
     this.sunLight.color.copy(su.sunColor.value);
     this.sunLight.position.copy(cam).addScaledVector(sun, 1000);

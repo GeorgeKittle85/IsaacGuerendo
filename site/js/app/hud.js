@@ -15,7 +15,7 @@ export class Hud {
     this.timer = 0;
     this.fps = 0;
     this.frames = 0;
-    this.fpsTime = 0;
+    this.fpsStart = null;
   }
 
   toggle(on = !this.visible) {
@@ -53,12 +53,14 @@ export class Hud {
   }
 
   update(dt, p, extra) {
+    // Frame rate from wall-clock time (dt is capped for the simulation).
+    const now = performance.now();
     this.frames++;
-    this.fpsTime += dt;
-    if (this.fpsTime >= 1) {
-      this.fps = Math.round(this.frames / this.fpsTime);
+    this.fpsStart ??= now;
+    if (now - this.fpsStart >= 1000) {
+      this.fps = Math.round((this.frames * 1000) / (now - this.fpsStart));
       this.frames = 0;
-      this.fpsTime = 0;
+      this.fpsStart = now;
     }
     this.timer -= dt;
     if (this.timer > 0 || !this.visible) return;

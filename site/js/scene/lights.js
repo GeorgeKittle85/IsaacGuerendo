@@ -38,8 +38,8 @@ const VERTEX = /* glsl */ `
         // VASI/PAPI: white above the box's glide-path angle, red below.
         float horizontal = length(n - up * dot(n, up));
         float nAngle = atan(dot(n, up), horizontal);
-        vec3 flat = normalize(n - up * dot(n, up));
-        float facing = dot(toCam - up * dot(toCam, up), flat);
+        vec3 level = normalize(n - up * dot(n, up));
+        float facing = dot(toCam - up * dot(toCam, up), level);
         float vAngle = atan(dot(toCam, up), max(facing, 1e-4));
         c = vAngle > nAngle ? vec3(1.0, 1.0, 0.95) : vec3(1.0, 0.15, 0.1);
         directional = smoothstep(0.0, 0.2, facing);

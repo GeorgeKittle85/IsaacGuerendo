@@ -16,6 +16,7 @@ export const sceneryUniforms = {
   time: { value: 0 },
   glowColor: { value: new THREE.Color(0, 0, 0) },
   upDir: { value: new THREE.Vector3(0, 1, 0) },
+  sunElevation: { value: 45 },
 };
 
 const COMMON_VERTEX = /* glsl */ `
@@ -140,7 +141,11 @@ const WATER_FRAGMENT = /* glsl */ `
     float ks[4];
     ks[0] = 0.21; ks[1] = 0.37; ks[2] = 0.83; ks[3] = 1.7;
     for (int i = 0; i < 4; i++) {
-      float c = cos(dot(p, dirs[i]) * ks[i] + time * (0.6 + 0.35 * float(i)));
+      float phase = dot(p, dirs[i]) * ks[i];
+      // Fade each wave out once it changes faster than ~1 rad per pixel,
+      // otherwise distant or zoomed-in water shows moire bands.
+      float aa = 1.0 - smoothstep(0.4, 1.2, fwidth(phase));
+      float c = cos(phase + time * (0.6 + 0.35 * float(i))) * aa;
       dx += dirs[i].x * c * 0.06 / (1.0 + float(i));
       dy += dirs[i].y * c * 0.06 / (1.0 + float(i));
     }

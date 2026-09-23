@@ -12,6 +12,7 @@ import { parseAC, buildAC } from "./ac3d.js";
 import { ConfigNode } from "../props/config.js";
 import { absPath, readCondition, readExpression, readInterpTable, readBindings } from "../props/sgexpr.js";
 import { sprintf } from "../nasal/nasal.js";
+import { effectChain, effectParameters, proceduralLightMaterial } from "./effects.js";
 
 const D2R = Math.PI / 180;
 
@@ -64,7 +65,14 @@ export class ModelLibrary {
     }
     let tex = null;
     if (info) {
-      tex = new THREE.TextureLoader().load(`${this.baseUrl}/${info.file}`);
+      // Clones made for texture animations before the image arrived are
+      // flagged for upload once it does (they share the image source).
+      tex = new THREE.TextureLoader().load(`${this.baseUrl}/${info.file}`, (t) => {
+        for (const c of t.pendingClones) c.needsUpdate = true;
+        t.pendingClones.length = 0;
+      });
+      // Not in userData: Texture.clone() deep-copies userData through JSON.
+      Object.defineProperty(tex, "pendingClones", { value: [] });
       tex.colorSpace = THREE.SRGBColorSpace;
       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
       tex.anisotropy = Math.min(8, this.renderer?.capabilities.getMaxAnisotropy?.() ?? 1);
@@ -285,8 +293,13 @@ function ownMaterials(groups, cloneTextures = false) {
         if (!c) {
           c = m.clone();
           if (cloneTextures && c.map) {
-            c.map = c.map.clone();
-            c.map.needsUpdate = true;
+            const src = m.map;
+            c.map = src.clone();
+            if (!src.image && src.pendingClones) {
+              // Upload once the shared image has loaded, not before.
+              c.map.version = 0;
+              src.pendingClones.push(c.map);
+            }
           }
           seen.set(m, c);
           mats.push(c);
@@ -364,6 +377,14 @@ async function loadEntry(lib, key, ctx, model) {
   });
 
   const actx = { ...ctx, lib, modelDir: entry.dir };
+  // SGReaderWriterXML: effects are instantiated before the animations.
+  for (const e of cfg.getChildren("effect")) {
+    try {
+      applyEffect(e, content, actx, model);
+    } catch (err) {
+      console.warn("effect", e.getStringValue("inherits-from"), err);
+    }
+  }
   for (const a of cfg.getChildren("animation")) {
     try {
       createAnimation(a, content, actx, model);
@@ -379,6 +400,35 @@ async function loadEntry(lib, key, ctx, model) {
     return align;
   }
   return content;
+}
+
+/**
+ * <effect> on named objects.  Only procedural lights change how things are
+ * drawn here; other effects (glass, light maps, ...) keep the AC material.
+ */
+function applyEffect(cfg, root, ctx, model) {
+  const effects = ctx.lib.manifest.effects ?? {};
+  const key = cfg.getStringValue("resolved", "");
+  if (!key || !effects[key]) return;
+  if (!effectChain(effects, key).includes("Effects/procedural-light")) return;
+  const params = effectParameters(effects, key);
+  const names = new Set(cfg.getChildren("object-name").map((n) => n.getStringValue().trim()).filter(Boolean));
+  const targets = [];
+  root.traverse((o) => {
+    if (names.has(o.name)) targets.push(o);
+  });
+  const use = params.intensity_scale?.use;
+  const scale = use ? ctx.props.node(use) : null;
+  for (const t of targets) {
+    t.traverse((m) => {
+      if (!m.isMesh) return;
+      const mat = proceduralLightMaterial(params);
+      m.material = mat;
+      m.renderOrder = 10;
+      if (scale) model.animations.push({ update: () => { mat.uniforms.intensityScale.value = scale.get(); } });
+      model.stats.lights = (model.stats.lights ?? 0) + 1;
+    });
+  }
 }
 
 function createAnimation(cfg, root, ctx, model) {
@@ -577,6 +627,32 @@ function createAnimation(cfg, root, ctx, model) {
       });
       return;
     }
+    case "dist-scale": {
+      // Scale with the distance to the viewer (e.g. lights stay visible far away).
+      const groups = install(root, names, newGroup(true));
+      const interp = cfg.getChild("interpolation");
+      const table = interp ? readInterpTable(interp) : null;
+      const factor = cfg.getDoubleValue("factor", 1);
+      const offset = cfg.getDoubleValue("offset", 0);
+      const c = cfg.getChild("center");
+      const center = new THREE.Vector3(c?.getDoubleValue("x-m", 0) ?? 0, c?.getDoubleValue("y-m", 0) ?? 0, c?.getDoubleValue("z-m", 0) ?? 0);
+      const lo = cfg.getDoubleValue("min", 0);
+      const hi = cfg.getDoubleValue("max", Infinity);
+      const world = new THREE.Vector3();
+      model.animations.push({
+        update: (dt, camera) => {
+          if (!camera) return;
+          for (const g of groups) {
+            world.copy(center).applyMatrix4(g.parent.matrixWorld);
+            const d = world.distanceTo(camera.position);
+            const f = Math.min(hi, Math.max(lo, table ? table(d) : d * factor + offset));
+            g.matrix.makeScale(f, f, f).setPosition(center.x * (1 - f), center.y * (1 - f), center.z * (1 - f));
+            g.matrixWorldNeedsUpdate = true;
+          }
+        },
+      });
+      return;
+    }
     case "billboard": {
       const groups = install(root, names, newGroup(true));
       const spherical = cfg.getBoolValue("spherical", true);
@@ -611,7 +687,6 @@ function createAnimation(cfg, root, ctx, model) {
     case "light":
     case "alpha-test":
     case "blend":
-    case "dist-scale":
     case "flash":
     case "interaction":
     case "lod":

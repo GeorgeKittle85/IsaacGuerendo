@@ -260,16 +260,28 @@ class App {
         });
         this.aircraftGroup.add(this.model.root);
       }
+      if (cfg.onGround) {
+        // Hold the aircraft while the engine settles from JSBSim's running
+        // start; B releases the parking brake.
+        this.sim.props.set("/controls/gear/brake-parking", 1);
+      }
       this.views.configureCockpit(this.sim.props);
       if (!this.viewChosen) this.views.setView(0);
       this.views.reset();
       this.sim.props.set("/sim/current-view/view-number", this.views.index);
       hideLoading();
+      if (!this.hudShown) {
+        this.hudShown = true;
+        this.hud.toggle(true);
+      }
       this.flying = true;
       const where = cfg.onGround ? `runway ${cfg.runway.id}` : sel.position === "final" ? `final approach, runway ${cfg.runway.id}` : "in the air";
       this.hud.message(`${cfg.airport.name} (${cfg.airport.icao}), ${where}`, 4);
-      if (!cfg.running) this.hud.message("Engine off: press Shift+S for autostart, or use the checklist", 6);
+      if (cfg.onGround && cfg.running) this.hud.message("Parking brake set: B releases it, Page Up adds power", 6);
+      if (!cfg.running) this.hud.message("Engine off: Shift+S runs the autostart", 6);
+      // Handle for the browser tests and for poking around in the console.
       window.__fg = this;
+      this.THREE = THREE;
     } catch (err) {
       showError(err);
     }

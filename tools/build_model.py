@@ -28,8 +28,24 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
-from proplist import PropNode, PropertyListReader, to_json  # noqa: E402
+from proplist import PropNode, PropertyListReader, to_json, typed_value  # noqa: E402
 from textures import convert_texture  # noqa: E402
+
+
+def effect_parameters(node):
+    """<parameters> -> {name: value | {"use": property}} (nested nodes skipped)."""
+    out = {}
+    if node is None:
+        return out
+    for (name, i), child in node.children.items():
+        if i != 0:
+            continue
+        use = child.get("use")
+        if use is not None and use.value:
+            out[name] = {"use": str(use.value).strip()}
+        elif not child.children and child.value is not None:
+            out[name] = typed_value(child)
+    return out
 
 
 def merge_overlay(dst, src):
@@ -50,6 +66,7 @@ class Builder:
         self.max_tex = max_tex
         self.models = {}
         self.textures = {}
+        self.effects = {}
         self.acs = set()
         self.skipped = []
 
@@ -96,13 +113,41 @@ class Builder:
         text = open(abs_path, "rb").read()
         dst = os.path.join(self.out, "files", rel + ".gz")
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        with gzip.open(dst, "wb", compresslevel=9) as fh:
+        # mtime=0 keeps the output byte-identical across rebuilds.
+        with open(dst, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=9, mtime=0) as fh:
             fh.write(text)
         base = os.path.dirname(abs_path)
         for m in re.finditer(rb'^texture\s+"([^"]+)"', text, re.M):
             name = m.group(1).decode("latin-1")
             self.texture(os.path.join(base, name))
         return rel
+
+    def effect(self, name, base_dir):
+        """Resolves an effect name the way SimGear's makeEffect() does (name +
+        ".eff" in the model's directory, then FG_ROOT) and records its
+        parameters and parent, following inherits-from.  Returns the key."""
+        name = name.strip()
+        path = None
+        for cand in (os.path.join(base_dir, name + ".eff"), os.path.join(self.fg, name + ".eff")):
+            if os.path.isfile(cand):
+                path = os.path.normpath(cand)
+                break
+        if not path:
+            self.skipped.append(f"missing effect {name}")
+            return None
+        key = self.rel(path)[:-4]
+        if key in self.effects:
+            return key
+        self.effects[key] = None  # cycle guard
+        tree = PropertyListReader(self.fg, search_dirs=[os.path.dirname(path)]).read(path)
+        parent = tree.get("inherits-from")
+        entry = {
+            "name": (tree.get("name").value if tree.get("name") is not None else name) or name,
+            "parent": self.effect(parent.value, os.path.dirname(path)) if parent is not None and parent.value else None,
+            "parameters": effect_parameters(tree.get("parameters")),
+        }
+        self.effects[key] = entry
+        return key
 
     def excluded(self, rel):
         return any(e.search(rel) for e in self.excludes)
@@ -148,6 +193,15 @@ class Builder:
                 continue
             ov = child.get("overlay")
             child.child("resolved", 0).value = self.model(sub, ov)
+        # Effects applied to named objects (procedural lights, glass, ...).
+        for (name, _i), eff in tree.children.items():
+            if name != "effect":
+                continue
+            inh = eff.get("inherits-from")
+            if inh is not None and inh.value:
+                effect_key = self.effect(inh.value, base)
+                if effect_key:
+                    eff.child("resolved", 0).value = effect_key
         # Textures swapped in by material animations (liveries, lights).
         for (name, _i), anim in tree.children.items():
             if name != "animation":
@@ -173,14 +227,14 @@ def main():
 
     b = Builder(args.fgdata, args.out, args.exclude, args.max_texture)
     root = b.model(os.path.join(b.fg, args.model))
-    out = {"root": root, "models": b.models, "textures": b.textures}
+    out = {"root": root, "models": b.models, "textures": b.textures, "effects": b.effects}
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "model.json"), "w") as fh:
         json.dump(out, fh, separators=(",", ":"))
     size = 0
     for dp, _dn, fn in os.walk(args.out):
         size += sum(os.path.getsize(os.path.join(dp, f)) for f in fn)
-    print(f"{len(b.models)} model files, {len(b.acs)} meshes, "
+    print(f"{len(b.models)} model files, {len(b.acs)} meshes, {len(b.effects)} effects, "
           f"{sum(1 for t in b.textures.values() if t)} textures, {size / 1e6:.1f} MB total")
     for s in b.skipped:
         print("  " + s)

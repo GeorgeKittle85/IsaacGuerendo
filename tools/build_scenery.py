@@ -356,7 +356,8 @@ def build_tile(stg_path, bucket_dir, mats, out_dir):
 
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"{index}.bin.gz")
-    with gzip.open(out, "wb", compresslevel=9) as fh:
+    # mtime=0 keeps the output byte-identical across rebuilds.
+    with open(out, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", compresslevel=9, mtime=0) as fh:
         fh.write(bytes(buf))
     return {
         "id": index, "file": f"tiles/{index}.bin.gz", "lat0": lat0, "lon0": lon0, "lat1": lat1, "lon1": lon1,
