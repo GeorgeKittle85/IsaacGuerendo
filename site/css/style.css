@@ -38,6 +38,10 @@ html, body {
 
 body.yoke-mode #view { cursor: crosshair; }
 
+/* Before the first flight: no 3D view yet, and nothing for the toolbar to do. */
+body:not(.flying) { background: radial-gradient(ellipse at 50% 30%, #1d3557 0%, #0b1220 70%); }
+body:not(.flying) #toolbar { display: none; }
+
 button, select, input {
   font: inherit;
   color: inherit;

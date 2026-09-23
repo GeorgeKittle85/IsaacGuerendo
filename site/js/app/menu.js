@@ -92,7 +92,8 @@ export class Menu {
     for (const r of apt.runways) {
       const o = document.createElement("option");
       o.value = r.id;
-      o.textContent = `${r.id} · ${Math.round(r.heading)}° true · ${Math.round(r.lengthM).toLocaleString("en-US")} m ${r.surface}`;
+      o.textContent = `${r.id} · ${Math.round(r.heading)}° · ${Math.round(r.lengthM).toLocaleString("en-US")} m`;
+      o.title = `${r.surface}, ${Math.round(r.heading)}° true`;
       sel.append(o);
     }
     const active = activeRunway(apt, +this.f.windDir.value || 0, +this.f.windKt.value || 0);
@@ -139,7 +140,9 @@ export class Menu {
     $("m-resume").hidden = !this.app.flying;
     this.el.hidden = false;
     document.body.classList.add("menu-open");
-    setTimeout(() => $("m-fly").focus(), 0);
+    // Enter flies; don't scroll short screens down to the button.
+    this.el.scrollTop = 0;
+    setTimeout(() => $("m-fly").focus({ preventScroll: true }), 0);
   }
 
   close() {

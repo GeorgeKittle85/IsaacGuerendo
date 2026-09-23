@@ -39,5 +39,6 @@ python3 tools/build_model.py --fgdata "$FG" --model Aircraft/c172p/Models/c172p.
   --exclude 'Models/Effects/interior/.*fg1000' --exclude 'c172sp-panel' --exclude 'fg1000' \
   --exclude 'Immat/' --exclude 'Exterior/rbf' --exclude 'Baggages' --exclude 'mooringharness' \
   --exclude 'garmin196' --exclude 'Aircraft/Generic/marker'
+python3 tools/build_sound.py --fgdata "$FG" --aircraft c172p --out site/data/aircraft/c172p/sound
 python3 tools/build_sky.py --fgdata "$FG" --out site/data/sky/stars.json
 echo "done: site/data rebuilt"

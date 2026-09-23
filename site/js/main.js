@@ -300,6 +300,7 @@ class App {
         this.hud.toggle(true);
       }
       this.flying = true;
+      document.body.classList.add("flying");
       const where = cfg.onGround ? `runway ${cfg.runway.id}` : sel.position === "final" ? `final approach, runway ${cfg.runway.id}` : "in the air";
       this.hud.message(`${cfg.airport.name} (${cfg.airport.icao}), ${where}`, 4);
       if (cfg.onGround && cfg.running) this.hud.message("Parking brake set: B releases it, Page Up adds power", 6);
@@ -471,7 +472,7 @@ class App {
     const agl = this.sim.props.get("/position/altitude-agl-ft");
     if (Math.hypot(dLat, dLon) < 1200 && agl < 3000 && agl > 200) {
       this.easterEggShown = true;
-      this.hud.message("Levi's Stadium below. Nice YAC — yards after climb.", 6);
+      this.hud.message("Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.", 6);
     }
   }
 }

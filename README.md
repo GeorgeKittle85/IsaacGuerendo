@@ -39,8 +39,12 @@ hosted on GitHub Pages or any web server.
     San Francisco, the SFO and Oakland terminals, and more.
 - **Sky.** The sun is placed from the real date and time, and the night sky
   uses FlightGear's star catalogue. Haze follows the visibility setting.
+- **Sound.** The c172p's FlightGear sound configuration (engine, wind,
+  stall horn, tyres, flaps, switches, doors) plays through the Web Audio
+  API, following SimGear's sound rules.
 - **Controls.** FlightGear's keyboard bindings, a mouse yoke mode, gamepads
-  and joysticks.
+  and joysticks. On phones and tablets, on-screen controls appear: a stick,
+  a throttle lever, and rudder, brake, flap and trim buttons.
 - **Views.** Cockpit, helicopter, chase, tower and fly-by.
 
 ## Running it locally
@@ -103,7 +107,8 @@ keys.
 | `site/` | The website: `index.html`, `css/`, `js/`, `wasm/` (JSBSim build), `data/` (converted FlightGear data), `vendor/` (three.js) |
 | `site/js/fdm`, `props`, `systems`, `instruments`, `aircraft`, `nasal` | The simulation: JSBSim interface, property tree, property rules, instruments, c172p systems, Nasal translator |
 | `site/js/scene`, `model` | Rendering: geodesy, scenery tiles and materials, sky, lights, scenery objects, AC3D and FlightGear model loading |
-| `site/js/app` | User interface: controls, input, views, menu, flight data strip |
+| `site/js/sound` | Aircraft sound (SimGear's XML sound system on Web Audio) |
+| `site/js/app` | User interface: controls, input, touch controls, views, menu, flight data strip |
 | `wasm/` | JSBSim WebAssembly build script, C++ bridge and patch |
 | `tools/` | Data conversion pipeline and tests |
 
@@ -126,7 +131,7 @@ tools/build_all.sh FG_ROOT build/terrasync
 This downloads the needed TerraSync scenery (terrain, objects and shared
 models, checked against TerraSync's SHA-1 indexes) and converts:
 
-- the aircraft: flight model, properties, rules, 3D model
+- the aircraft: flight model, properties, rules, 3D model, sounds
 - the scenery: tiles, airports and objects
 - the star catalogue
 
