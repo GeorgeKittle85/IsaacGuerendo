@@ -31,7 +31,7 @@ export class FDMInterface {
    *   {lat, lon, headingDeg, onGround, altitudeFt (MSL, when airborne),
    *    speedKts, running}
    */
-  init({ fdmBundle, initialProps, start, setup, afterLoad }) {
+  init({ fdmBundle, initialProps, start, setup, afterLoad, beforeTrim }) {
     const { jsb, props } = this;
     jsb.writeFiles(fdmBundle.files);
     jsb.create("/fdm");
@@ -61,14 +61,26 @@ export class FDMInterface {
     jsb.runIC();
 
     if (start.running) {
-      // FGJSBsim::init with /sim/presets/running: start every engine.
+      // FGJSBsim::init with /sim/presets/running: start every engine.  The
+      // aircraft's own mixture setting stays (the c172p computes one for the
+      // altitude; full rich would starve it at a few thousand feet).
       props.set("propulsion/set-running", -1);
       for (let i = 0; i < this.engines; i++) {
         props.set(`/controls/engines/engine[${i}]/magnetos`, 3);
-        props.set(`/controls/engines/engine[${i}]/mixture`, 1);
+        if (!(props.get(`/controls/engines/engine[${i}]/mixture`) > 0)) props.set(`/controls/engines/engine[${i}]/mixture`, 1);
         props.set(`/engines/engine[${i}]/running`, true);
       }
     }
+    // As in FlightGear, the trim happens once the aircraft's systems have
+    // run (electrical power for the flaps, property rules for the mixture)
+    // and the controls have been copied into JSBSim.
+    if (!start.onGround && start.running) {
+      // Airborne: start from cruise power; the trim adjusts it.  (From idle,
+      // JSBSim's steady-state pass can stall the engine at altitude.)
+      for (let i = 0; i < this.engines; i++) props.set(`/controls/engines/engine[${i}]/throttle`, start.throttle ?? 0.7);
+    }
+    beforeTrim?.(props);
+    this.copyToJSBSim();
     // /sim/presets/trim defaults to true in FlightGear: a ground trim settles
     // the aircraft on its gear, an airborne one finds steady level flight.
     const trimmed = jsb.trim(start.onGround ? 2 : 1);

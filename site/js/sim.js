@@ -56,8 +56,18 @@ export class Simulation {
         // Let the rules settle so the FDM sees consistent controls at RunIC.
         for (let i = 0; i < 2; i++) for (const r of this.rules) r.update(0.01);
       },
+      beforeTrim: () => {
+        // Lean for the altitude like the c172p's state manager does: full
+        // rich (the knob's 1.0) floods the engine above about 3000 ft.
+        if (start.running) {
+          const alt = start.onGround ? props.get("/position/ground-elev-ft") : start.altitudeFt;
+          props.set("/controls/engines/current-engine/mixture", this.aircraft.autoMixture(alt || 0));
+        }
+        this.aircraft.update(0.01);
+        for (let i = 0; i < 2; i++) for (const r of this.rules) r.update(0.01);
+      },
     });
-    this.aircraft.init({ running: !!start.running });
+    this.aircraft.init();
     // One flight-model step so the aircraft's own JSBSim systems (e.g. the
     // selected static pressure) replace their start-up placeholders before
     // the instruments start; otherwise the VSI begins with a false climb.
@@ -75,7 +85,9 @@ export class Simulation {
     this.instruments = new InstrumentManager(props,
       rules.systems && ConfigNode.from(rules.systems),
       rules.instrumentation && ConfigNode.from(rules.instrumentation));
-    this.instruments.update(0.01);
+    // A quarter second of instrument time so filtered gauges (the ASI's
+    // low-pass) start at their readings rather than climbing from zero.
+    for (let i = 0; i < 5; i++) this.instruments.update(0.05);
     for (const r of this.rules) r.update(0.01);
     const vsi = this.instruments.items.find((i) => i.reinit && i.name === "vertical-speed-indicator");
     vsi?.reinit();

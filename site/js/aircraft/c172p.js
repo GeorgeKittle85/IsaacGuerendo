@@ -141,13 +141,16 @@ export class C172P {
     p.set("propulsion/tank[4]/contents-lbs", 0.1);
   }
 
-  /** After the FDM is initialised. */
-  init({ running }) {
+  /**
+   * After the FDM is initialised.  (A running start's switch settings were
+   * applied before the initial conditions; applying them again here would
+   * undo the trim JSBSim just found.)
+   */
+  init() {
     this.flashers = [
       new Flasher(this.props, "/sim/model/c172p/lighting/strobes", [0.1, 1.3]),
       new Flasher(this.props, "/sim/model/c172p/lighting/beacon", [0.3, 1.3]),
     ];
-    if (running) this.runningState();
   }
 
   /** Port of state-manager.nas / autostart(): a ready-to-fly aircraft. */
@@ -183,6 +186,22 @@ export class C172P {
       "tiedownR-visible", "tiedownT-visible"]) {
       set(`/sim/model/c172p/securing/${s}`, false);
     }
+  }
+
+  /**
+   * The leaned mixture knob setting for a density altitude, from the c172p's
+   * Systems/c172p-engine.xml "auto-engine-mixture" table.
+   */
+  autoMixture(densityAltFt) {
+    const t = [[0, 1.0], [3000, 0.7], [6000, 0.5], [9000, 0.35], [12000, 0.3], [15000, 0.25]];
+    if (densityAltFt <= t[0][0]) return t[0][1];
+    for (let i = 1; i < t.length; i++) {
+      if (densityAltFt <= t[i][0]) {
+        const [x0, y0] = t[i - 1], [x1, y1] = t[i];
+        return y0 + ((y1 - y0) * (densityAltFt - x0)) / (x1 - x0);
+      }
+    }
+    return t[t.length - 1][1];
   }
 
   /** Port of c172p.nas autostart(): switches, primer, then crank for a few seconds. */

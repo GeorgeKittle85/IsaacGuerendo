@@ -17,6 +17,7 @@ import { Controls } from "./app/controls.js";
 import { ViewManager } from "./app/views.js";
 import { Input, HELP } from "./app/input.js";
 import { Hud } from "./app/hud.js";
+import { TouchControls } from "./app/touch.js";
 import { Menu } from "./app/menu.js";
 import { createC172pNamespace } from "./aircraft/c172p-nasal.js";
 import { SoundSystem } from "./sound/fgsound.js";
@@ -89,7 +90,9 @@ class App {
     const renderer = new THREE.WebGLRenderer({
       canvas: this.canvas, antialias: true, logarithmicDepthBuffer: true, powerPreference: "high-performance",
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    // Phones and tablets: fewer pixels keep the frame rate up.
+    this.mobile = !!window.matchMedia?.("(pointer: coarse)").matches;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.mobile ? 1.5 : 2));
     this.renderer = renderer;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200000);
@@ -130,6 +133,7 @@ class App {
     });
     this.input = new Input(this);
     this.input.attach();
+    this.touch = new TouchControls(this);
     this.buildHelp();
     window.addEventListener("resize", () => this.resize());
     this.resize();
@@ -397,6 +401,7 @@ class App {
     }
     const t0 = performance.now();
     this.input.update(dt);
+    this.touch.update(dt);
     this.onFrame?.(dt); // test hook (tools/e2e)
     const running = !this.paused && !this.menu.isOpen;
     this.sim.fdm.setGroundMaterial(this.scenery.lastMaterial);

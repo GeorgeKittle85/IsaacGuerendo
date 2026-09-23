@@ -52,6 +52,8 @@ export class Menu {
       this.f.airport.append(o);
     }
     const saved = load();
+    // Smaller scenery radius by default on phones and tablets.
+    if (!saved && app.mobile) this.f.range.value = "15";
     this.f.airport.value = saved?.airport && airports.some((a) => a.icao === saved.airport) ? saved.airport : "KSFO";
     if (saved) {
       if (saved.position) this.f.position.value = saved.position;
