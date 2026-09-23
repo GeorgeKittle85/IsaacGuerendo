@@ -142,9 +142,9 @@ const WATER_FRAGMENT = /* glsl */ `
     ks[0] = 0.21; ks[1] = 0.37; ks[2] = 0.83; ks[3] = 1.7;
     for (int i = 0; i < 4; i++) {
       float phase = dot(p, dirs[i]) * ks[i];
-      // Fade each wave out once it changes faster than ~1 rad per pixel,
-      // otherwise distant or zoomed-in water shows moire bands.
-      float aa = 1.0 - smoothstep(0.4, 1.2, fwidth(phase));
+      // Fade each wave out well before it is sampled less than ~12 pixels
+      // per wavelength, otherwise the sun glint turns into moire patterns.
+      float aa = 1.0 - smoothstep(0.12, 0.5, fwidth(phase));
       float c = cos(phase + time * (0.6 + 0.35 * float(i))) * aa;
       dx += dirs[i].x * c * 0.06 / (1.0 + float(i));
       dy += dirs[i].y * c * 0.06 / (1.0 + float(i));
@@ -160,7 +160,10 @@ const WATER_FRAGMENT = /* glsl */ `
     vec3 sky = fogColor;
     vec3 col = mix(base, sky, clamp(0.15 + fres * 0.85, 0.0, 1.0));
     vec3 h = normalize(v + sunDir);
-    col += sunColor * pow(max(dot(n, h), 0.0), 180.0) * 1.5;
+    // Glint from the rippled normal close by, the smooth one far away.
+    float ripple = clamp(1.0 - vDist / 3000.0, 0.0, 1.0);
+    vec3 ng = normalize(mix(nUp, n, ripple));
+    col += sunColor * pow(max(dot(ng, h), 0.0), mix(60.0, 180.0, ripple)) * mix(0.6, 1.5, ripple);
     gl_FragColor = vec4(applyFog(col), 1.0);
     #include <colorspace_fragment>
   }

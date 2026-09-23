@@ -1,0 +1,15 @@
+{
+  "name": "flightgear-web",
+  "private": true,
+  "description": "FlightGear in the browser: JSBSim compiled to WebAssembly flying FlightGear's Cessna 172P over the San Francisco Bay Area",
+  "license": "GPL-2.0-or-later",
+  "type": "module",
+  "scripts": {
+    "serve": "python3 -m http.server --directory site 8000",
+    "test": "node tools/fdm_smoke_test.mjs && node tools/nasal_test.mjs",
+    "test:e2e": "node tools/e2e_test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.55.0"
+  }
+}

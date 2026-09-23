@@ -1,0 +1,24 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Syntax check
+        run: for f in $(find site/js tools -name '*.js' -o -name '*.mjs' | grep -v node_modules); do node --check "$f"; done
+      - name: Flight model smoke test (JSBSim WebAssembly + c172p)
+        run: node tools/fdm_smoke_test.mjs
+      - name: Nasal translator test
+        run: node tools/nasal_test.mjs
