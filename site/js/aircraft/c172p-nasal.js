@@ -51,7 +51,6 @@ export function createC172pNamespace(app) {
       p.set(path, true);
       clearTimeout(clickTimers.get(path));
       clickTimers.set(path, setTimeout(() => p.set(path, false), Math.max(0.05, timeout) * 1000));
-      app.sound?.click(name);
     },
     pumpPrimer() {
       app.aircraft.pumpPrimer();

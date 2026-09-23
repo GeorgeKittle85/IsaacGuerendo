@@ -105,6 +105,7 @@ h1 span { color: var(--accent-2); font-weight: 400; }
 }
 
 body.paused #btn-pause { background: var(--warn); color: #111; border-color: var(--warn); }
+body.muted #btn-sound { text-decoration: line-through; opacity: 0.7; }
 
 /* ---------------------------------------------------------------- hud */
 

@@ -19,6 +19,7 @@ import { Input, HELP } from "./app/input.js";
 import { Hud } from "./app/hud.js";
 import { Menu } from "./app/menu.js";
 import { createC172pNamespace } from "./aircraft/c172p-nasal.js";
+import { SoundSystem } from "./sound/fgsound.js";
 
 const FT = 0.3048;
 const $ = (id) => document.getElementById(id);
@@ -68,6 +69,7 @@ class App {
     this.time = 0;
     this.sceneryTimer = 0;
     this.crashNotified = false;
+    this.tmpPos = new THREE.Vector3();
   }
 
   async boot() {
@@ -108,6 +110,13 @@ class App {
     this.aircraftGroup.matrixAutoUpdate = false;
     this.scene.add(this.aircraftGroup);
 
+    this.sound = new SoundSystem("data/aircraft/c172p/sound");
+    this.sound.load().catch((err) => console.warn("sound config", err.message));
+    // Browsers start audio only after a user gesture.
+    const unlock = () => this.sound.unlock();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+
     this.hud = new Hud();
     this.controls = new Controls(this);
     this.views = new ViewManager({
@@ -144,6 +153,12 @@ class App {
     on("btn-view", () => this.stepView(1));
     on("btn-pause", () => this.togglePause());
     on("btn-help", () => this.toggleHelp());
+    on("btn-sound", () => {
+      this.sound.unlock();
+      this.sound.setMuted(!this.sound.muted);
+      document.body.classList.toggle("muted", this.sound.muted);
+      this.hud.message(this.sound.muted ? "Sound off" : "Sound on", 1.2);
+    });
     on("btn-full", () => {
       if (document.fullscreenElement) document.exitFullscreen();
       else document.documentElement.requestFullscreen?.();
@@ -269,10 +284,12 @@ class App {
         // start; B releases the parking brake.
         this.sim.props.set("/controls/gear/brake-parking", 1);
       }
+      this.sound.attach(this.sim.props);
       this.views.configureCockpit(this.sim.props);
       if (!this.viewChosen) this.views.setView(0);
       this.views.reset();
       this.sim.props.set("/sim/current-view/view-number", this.views.index);
+      this.sim.props.set("/sim/current-view/internal", this.views.view.type === "cockpit");
       hideLoading();
       if (!this.hudShown) {
         this.hudShown = true;
@@ -316,6 +333,7 @@ class App {
     this.viewChosen = true;
     const name = this.views.setView(i);
     this.sim.props.set("/sim/current-view/view-number", this.views.index);
+    this.sim.props.set("/sim/current-view/internal", this.views.view.type === "cockpit");
     this.hud.message(name, 1.5);
   }
 
@@ -384,6 +402,7 @@ class App {
     this.sim.fdm.setGroundMaterial(this.scenery.lastMaterial);
     this.sim.update(dt, { paused: !running, speedUp: this.speedUp });
     if (running) this.nasal.update(dt * this.speedUp);
+    this.sound.suspend(!running);
     this.simMs = performance.now() - t0;
 
     const ac = this.aircraftState();
@@ -429,6 +448,9 @@ class App {
     }
     this.model?.update(dt, this.camera);
     this.objects.update(dt, this.camera, this.scenery, ac.lat, ac.lon);
+    const listener = this.views.view.type === "cockpit" && !this.debugCamera ? 0
+      : this.camera.position.distanceTo(this.tmpPos.setFromMatrixPosition(this.aircraftGroup.matrix));
+    this.sound.update(dt, listener);
     this.sky.update(this.frame, this.camera, this.sim.date);
     this.lights.update(this.time);
     sceneryUniforms.time.value = this.time;
