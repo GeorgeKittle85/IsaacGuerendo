@@ -9,6 +9,7 @@ import { RenderFrame, aircraftMatrix } from "./scene/geo.js";
 import { SceneryManager } from "./scene/tiles.js";
 import { Sky, timeForSun } from "./scene/sky.js";
 import { AirportLights } from "./scene/lights.js";
+import { SceneryObjects } from "./scene/objects.js";
 import { sceneryUniforms } from "./scene/materials.js";
 import { ModelLibrary, loadModel } from "./model/fgmodel.js";
 import { NasalRuntime } from "./nasal/nasal.js";
@@ -95,7 +96,10 @@ class App {
     this.lights = new AirportLights(renderer);
     this.scenery = new SceneryManager({ baseUrl: "data/scenery", frame: this.frame, scene: this.scene, renderer });
     this.scenery.lightFactory = (lights, mgr) => this.lights.build(lights, mgr);
-    await this.scenery.init();
+    this.objects = new SceneryObjects("data/scenery/objects", renderer, { props: this.sim.props });
+    this.scenery.onTileLoaded = (tile) => this.objects.addTile(tile).catch((err) => console.warn("objects", err));
+    this.scenery.onTileUnloaded = (tile) => this.objects.removeTile(tile);
+    await Promise.all([this.scenery.init(), this.objects.init()]);
     fetchJson("data/sky/stars.json").then((s) => this.sky.setStars(s.stars)).catch(() => {});
     jsb.setGroundProvider((lat, lon) => this.scenery.groundQuery(lat, lon));
 
@@ -387,7 +391,8 @@ class App {
     this.sceneryTimer -= dt;
     if (this.sceneryTimer <= 0) {
       this.sceneryTimer = 1;
-      this.scenery.update(ac.lat, ac.lon, this.radiusKm);
+      const c = this.debugCamera ?? ac;
+      this.scenery.update(c.lat, c.lon, this.radiusKm);
       this.checkEasterEgg(ac);
     }
     if (this.sim.fdm.crashed && !this.crashNotified) {
@@ -405,8 +410,25 @@ class App {
     this.time += dt;
     aircraftMatrix(this.frame, ac.lat, ac.lon, ac.alt, ac.roll, ac.pitch, ac.heading, this.aircraftGroup.matrix);
     this.aircraftGroup.matrixWorldNeedsUpdate = true;
-    const info = this.views.update(dt, ac, this.camera);
+    let info;
+    if (this.debugCamera) {
+      // {lat, lon, alt, at: {lat, lon, alt}, fov}: a fixed camera for tests and screenshots.
+      const d = this.debugCamera;
+      const cam = this.camera;
+      this.frame.geodeticToRender(d.lat, d.lon, d.alt, cam.position);
+      this.frame.upAt(cam.position, cam.up);
+      cam.lookAt(this.frame.geodeticToRender(d.at.lat, d.at.lon, d.at.alt));
+      cam.fov = d.fov ?? 50;
+      cam.near = 1;
+      cam.aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+      cam.updateProjectionMatrix();
+      cam.updateMatrixWorld(true);
+      info = { name: "Debug camera" };
+    } else {
+      info = this.views.update(dt, ac, this.camera);
+    }
     this.model?.update(dt, this.camera);
+    this.objects.update(dt, this.camera, this.scenery, ac.lat, ac.lon);
     this.sky.update(this.frame, this.camera, this.sim.date);
     this.lights.update(this.time);
     sceneryUniforms.time.value = this.time;

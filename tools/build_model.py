@@ -59,8 +59,11 @@ def merge_overlay(dst, src):
 
 
 class Builder:
-    def __init__(self, fgdata, out, excludes, max_tex):
+    def __init__(self, fgdata, out, excludes, max_tex, roots=None):
         self.fg = os.path.abspath(fgdata)
+        # Data roots searched in order, like FlightGear's resource paths
+        # (e.g. the TerraSync directory before FG_ROOT for scenery models).
+        self.roots = [os.path.abspath(r) for r in (roots or [fgdata])]
         self.out = out
         self.excludes = [re.compile(e) for e in excludes]
         self.max_tex = max_tex
@@ -71,12 +74,16 @@ class Builder:
         self.skipped = []
 
     def rel(self, path):
-        return os.path.relpath(os.path.abspath(path), self.fg).replace(os.sep, "/")
+        path = os.path.abspath(path)
+        for root in self.roots:
+            if path.startswith(root + os.sep):
+                return os.path.relpath(path, root).replace(os.sep, "/")
+        return os.path.relpath(path, self.fg).replace(os.sep, "/")
 
     def resolve(self, ref, base_dir):
         ref = ref.strip()
-        cands = [os.path.join(self.fg, ref.lstrip("/"))] if ref.startswith("/") else \
-            [os.path.join(base_dir, ref), os.path.join(self.fg, ref)]
+        rooted = [os.path.join(r, ref.lstrip("/")) for r in self.roots]
+        cands = rooted if ref.startswith("/") else [os.path.join(base_dir, ref)] + rooted
         for c in cands:
             if os.path.isfile(c):
                 return os.path.normpath(c)
@@ -128,7 +135,7 @@ class Builder:
         parameters and parent, following inherits-from.  Returns the key."""
         name = name.strip()
         path = None
-        for cand in (os.path.join(base_dir, name + ".eff"), os.path.join(self.fg, name + ".eff")):
+        for cand in [os.path.join(base_dir, name + ".eff")] + [os.path.join(r, name + ".eff") for r in self.roots]:
             if os.path.isfile(cand):
                 path = os.path.normpath(cand)
                 break
@@ -139,7 +146,7 @@ class Builder:
         if key in self.effects:
             return key
         self.effects[key] = None  # cycle guard
-        tree = PropertyListReader(self.fg, search_dirs=[os.path.dirname(path)]).read(path)
+        tree = PropertyListReader(self.fg, search_dirs=[os.path.dirname(path)] + self.roots).read(path)
         parent = tree.get("inherits-from")
         entry = {
             "name": (tree.get("name").value if tree.get("name") is not None else name) or name,
@@ -165,7 +172,7 @@ class Builder:
             # A bare .ac referenced as a submodel.
             self.models[key] = {"dir": self.rel(base), "ac": self.ac(abs_path), "config": None}
             return key
-        tree = PropertyListReader(self.fg, search_dirs=[base]).read(abs_path)
+        tree = PropertyListReader(self.fg, search_dirs=[base] + self.roots).read(abs_path)
         if overlay is not None:
             merge_overlay(tree, overlay)
         entry = {"dir": self.rel(base), "ac": None, "config": None}

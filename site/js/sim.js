@@ -20,7 +20,8 @@ export class Simulation {
   constructor(jsb, data) {
     this.jsb = jsb;
     this.data = data;
-    this.props = null;
+    // Handles resolve lazily, so the tree can be used before the first start.
+    this.props = new PropertyTree(jsb);
     this.elapsed = 0;
     this.magTimer = 0;
   }

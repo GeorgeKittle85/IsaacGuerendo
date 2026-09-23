@@ -327,13 +327,17 @@ export class FGModel {
 
 /**
  * Loads a model (by manifest key) with all submodels and animations.
- * ctx: {props, base, nasal (NasalRuntime), commands}
+ * ctx: {props, base, nasal (NasalRuntime), commands, static (no animations)}
  */
 export async function loadModel(lib, key, ctx) {
   const model = new FGModel();
   model.root = await loadEntry(lib, key, ctx, model);
   return model;
 }
+
+// Static templates (instanced scenery): parts animated only to show lights
+// or to swap level of detail are left out; everything else stays at rest.
+const STATIC_HIDE = new Set(["select", "billboard", "dist-scale", "flash", "timed", "light"]);
 
 async function loadEntry(lib, key, ctx, model) {
   const entry = lib.manifest.models[key];
@@ -352,6 +356,7 @@ async function loadEntry(lib, key, ctx, model) {
   const loaded = await Promise.all(subs.map(async (s) => {
     const resolved = s.getStringValue("resolved", "");
     if (!resolved) return null;
+    if (ctx.static && s.getChild("condition")) return null;
     try {
       return await loadEntry(lib, resolved, ctx, model);
     } catch (err) {
@@ -377,6 +382,25 @@ async function loadEntry(lib, key, ctx, model) {
   });
 
   const actx = { ...ctx, lib, modelDir: entry.dir };
+  if (ctx.static) {
+    const hide = new Set();
+    for (const a of cfg.getChildren("animation")) {
+      if (!STATIC_HIDE.has(a.getStringValue("type", "").trim())) continue;
+      for (const n of a.getChildren("object-name")) hide.add(n.getStringValue().trim());
+    }
+    for (const e of cfg.getChildren("effect")) {
+      const ek = e.getStringValue("resolved", "");
+      if (ek && effectChain(lib.manifest.effects ?? {}, ek).includes("Effects/procedural-light")) {
+        for (const n of e.getChildren("object-name")) hide.add(n.getStringValue().trim());
+      }
+    }
+    if (hide.size) content.traverse((o) => { if (hide.has(o.name)) o.visible = false; });
+    const mainOffsets = offsetsMatrix(cfg.getChild("offsets"));
+    if (!mainOffsets) return content;
+    const align = fixedGroup("Align Main Model", mainOffsets);
+    align.add(content);
+    return align;
+  }
   // SGReaderWriterXML: effects are instantiated before the animations.
   for (const e of cfg.getChildren("effect")) {
     try {

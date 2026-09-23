@@ -101,6 +101,10 @@ export class FDMInterface {
       "/systems/pitot/icing": 0,
       "/sim/freeze/fuel": false, "/sim/freeze/master": false, "/sim/crashed": false,
       "/sim/presets/onground": !!start.onGround, "/sim/presets/running": !!start.running,
+      // Level-of-detail ranges scenery models read (defaults.xml static-lod:
+      // detailed, detailed + rough-delta, rough + bare-delta).
+      "/sim/rendering/static-lod/detailed": 1500, "/sim/rendering/static-lod/rough": 9000,
+      "/sim/rendering/static-lod/bare": 30000,
       "/pax/pilot/present": true, "/pax/co-pilot/present": false,
       "/pax/left-passenger/present": false, "/pax/right-passenger/present": false,
     };

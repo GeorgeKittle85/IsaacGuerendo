@@ -141,6 +141,7 @@ export class SceneryManager {
     this.lastMaterial = null;
     this.lightFactory = null;
     this.onTileLoaded = null;
+    this.onTileUnloaded = null;
   }
 
   async init() {
@@ -278,6 +279,7 @@ export class SceneryManager {
     }
     for (const [id, tile] of this.tiles) {
       if (this.distanceKm(tile.info, lat, lon) > radiusKm * 1.4) {
+        this.onTileUnloaded?.(tile);
         this.root.remove(tile.group);
         tile.dispose();
         this.tiles.delete(id);

@@ -16,6 +16,7 @@ import concurrent.futures
 import hashlib
 import os
 import sys
+import threading
 import time
 import urllib.request
 
@@ -66,7 +67,7 @@ def download_file(server, rel_path, dest_root, sha):
     got = hashlib.sha1(data).hexdigest()
     if got != sha:
         raise RuntimeError(f"SHA-1 mismatch for {rel_path}: {got} != {sha}")
-    tmp = out + ".part"
+    tmp = f"{out}.{os.getpid()}.{threading.get_ident()}.part"
     with open(tmp, "wb") as fh:
         fh.write(data)
     os.replace(tmp, out)
