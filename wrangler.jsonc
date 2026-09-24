@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "flightgear-web",
+  "compatibility_date": "2024-09-23",
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "404-page"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
