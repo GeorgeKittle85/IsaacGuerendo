@@ -12,6 +12,7 @@ import { AirportLights } from "./scene/lights.js";
 import { SceneryObjects } from "./scene/objects.js";
 import { sceneryUniforms } from "./scene/materials.js";
 import { ModelLibrary, loadModel } from "./model/fgmodel.js";
+import { GLTFAircraftModel } from "./model/gltfmodel.js";
 import { NasalRuntime } from "./nasal/nasal.js";
 import { Controls } from "./app/controls.js";
 import { ViewManager } from "./app/views.js";
@@ -20,6 +21,7 @@ import { Hud } from "./app/hud.js";
 import { TouchControls } from "./app/touch.js";
 import { Menu } from "./app/menu.js";
 import { createC172pNamespace } from "./aircraft/c172p-nasal.js";
+import { aircraftById } from "./aircraft/registry.js";
 import { SoundSystem } from "./sound/fgsound.js";
 
 const FT = 0.3048;
@@ -67,6 +69,9 @@ class App {
     this.frameDt = 1 / 60;
     this.flying = false;
     this.model = null;
+    this.models = new Map(); // aircraft id -> loaded 3D model
+    this.sounds = new Map(); // aircraft id -> SoundSystem
+    this.aircraftData = new Map(); // aircraft id -> Promise of {fdm, props, rules}
     this.time = 0;
     this.sceneryTimer = 0;
     this.crashNotified = false;
@@ -75,16 +80,14 @@ class App {
 
   async boot() {
     setLoading("Loading the JSBSim flight model (WebAssembly)…", 0.05);
-    const [jsb, fdm, props, rules, airports] = await Promise.all([
+    const [jsb, airports] = await Promise.all([
       JSBSim.load(createJSBSim),
-      fetchJson("data/fdm/c172p.json"),
-      fetchJson("data/aircraft/c172p/props.json"),
-      fetchJson("data/aircraft/c172p/rules.json"),
       fetchJson("data/scenery/airports.json"),
     ]);
     this.jsb = jsb;
     this.airports = airports.airports;
-    this.sim = new Simulation(jsb, { fdm, props, rules });
+    // The aircraft is chosen in the start menu; see start().
+    this.sim = new Simulation(jsb, null);
     setLoading("Preparing the renderer…", 0.15);
 
     const renderer = new THREE.WebGLRenderer({
@@ -113,10 +116,11 @@ class App {
     this.aircraftGroup.matrixAutoUpdate = false;
     this.scene.add(this.aircraftGroup);
 
-    this.sound = new SoundSystem("data/aircraft/c172p/sound");
-    this.sound.load().catch((err) => console.warn("sound config", err.message));
     // Browsers start audio only after a user gesture.
-    const unlock = () => this.sound.unlock();
+    const unlock = () => {
+      this.soundUnlocked = true;
+      this.sound?.unlock();
+    };
     window.addEventListener("pointerdown", unlock);
     window.addEventListener("keydown", unlock);
 
@@ -158,10 +162,11 @@ class App {
     on("btn-pause", () => this.togglePause());
     on("btn-help", () => this.toggleHelp());
     on("btn-sound", () => {
-      this.sound.unlock();
-      this.sound.setMuted(!this.sound.muted);
-      document.body.classList.toggle("muted", this.sound.muted);
-      this.hud.message(this.sound.muted ? "Sound off" : "Sound on", 1.2);
+      this.muted = !this.muted;
+      this.sound?.unlock();
+      this.sound?.setMuted(this.muted);
+      document.body.classList.toggle("muted", this.muted);
+      this.hud.message(this.muted ? "Sound off" : "Sound on", 1.2);
     });
     on("btn-full", () => {
       if (document.fullscreenElement) document.exitFullscreen();
@@ -194,6 +199,7 @@ class App {
 
   /** Resolves a menu selection into a Simulation start configuration. */
   startConfig(sel) {
+    const ac = aircraftById(sel.aircraft).start;
     const apt = this.airports.find((a) => a.icao === sel.airport) ?? this.airports[0];
     const rwy = apt.runways.find((r) => r.id === sel.runway) ?? apt.runways[0];
     const elevFt = apt.elevationFt;
@@ -204,10 +210,11 @@ class App {
       const d = 3 * 1852;
       const p = offsetLatLon(thr.lat, thr.lon, rwy.heading + 180, d);
       cfg = { lat: p.lat, lon: p.lon, headingDeg: rwy.heading, onGround: false, running: true,
-        altitudeFt: elevFt + (d * Math.tan((3 * Math.PI) / 180)) / FT + 50, speedKts: 70, flaps: 1 / 3 };
+        altitudeFt: elevFt + (d * Math.tan((3 * Math.PI) / 180)) / FT + 50, speedKts: ac.finalKts,
+        flaps: ac.finalFlaps, throttle: ac.throttle };
     } else if (sel.position === "air") {
       cfg = { lat: rwy.lat, lon: rwy.lon, headingDeg: rwy.heading, onGround: false, running: true,
-        altitudeFt: elevFt + 3000, speedKts: 100 };
+        altitudeFt: elevFt + 3000, speedKts: ac.airKts, throttle: ac.throttle, gearDown: !ac.airGearUp };
     } else {
       const p = offsetLatLon(rwy.lat, rwy.lon, rwy.heading, 15);
       cfg = { lat: p.lat, lon: p.lon, headingDeg: rwy.heading, onGround: true, running: sel.position !== "cold" };
@@ -235,10 +242,66 @@ class App {
     };
   }
 
+  /** The flight model, property and rule bundles of an aircraft (fetched once). */
+  loadAircraftData(def) {
+    if (!this.aircraftData.has(def.id)) {
+      const get = (v) => (typeof v === "string" ? fetchJson(v) : v);
+      const d = def.data;
+      const p = Promise.all([get(d.fdm), get(d.props), get(d.rules)]).then(([fdm, props, rules]) => ({ fdm, props, rules }));
+      p.catch(() => this.aircraftData.delete(def.id));
+      this.aircraftData.set(def.id, p);
+    }
+    return this.aircraftData.get(def.id);
+  }
+
+  /** The aircraft's 3D model: FlightGear model XML (c172p) or glTF (F-16). */
+  async loadAircraftModel(def) {
+    if (def.model.type === "gltf") return GLTFAircraftModel.load(def.model.url, def.model, this.sim.props);
+    const lib = await ModelLibrary.load(def.model.url, this.renderer);
+    const model = await loadModel(lib, lib.manifest.root, { props: this.sim.props, base: "/", nasal: this.nasal, commands: {} });
+    model.pickMeshes = [];
+    model.root.traverse((o) => {
+      if (!o.isMesh) return;
+      for (let n = o; n; n = n.parent) {
+        if (n.userData.pick) { model.pickMeshes.push(o); break; }
+      }
+    });
+    return model;
+  }
+
+  /** Switches the 3D model and the sound set to the selected aircraft. */
+  async useAircraft(def) {
+    let model = this.models.get(def.id);
+    if (!model) {
+      setLoading(`Loading the ${def.short}…`, 0.75);
+      model = await this.loadAircraftModel(def);
+      this.models.set(def.id, model);
+    }
+    if (this.model !== model) {
+      if (this.model) this.aircraftGroup.remove(this.model.root);
+      this.aircraftGroup.add(model.root);
+      this.model = model;
+    }
+    let sound = this.sounds.get(def.id);
+    if (!sound) {
+      sound = new SoundSystem(def.sound);
+      sound.load().catch((err) => console.warn("sound config", err.message));
+      this.sounds.set(def.id, sound);
+    }
+    if (this.sound !== sound) {
+      this.sound?.detach();
+      this.sound = sound;
+      sound.setMuted(!!this.muted);
+      if (this.soundUnlocked) sound.unlock();
+    }
+  }
+
   async start(sel) {
     try {
       this.flying = false;
       this.menu.close();
+      const def = aircraftById(sel.aircraft);
+      const aircraftData = this.loadAircraftData(def);
       const cfg = this.startConfig(sel);
       this.startSel = sel;
       this.radiusKm = cfg.radiusKm;
@@ -249,9 +312,12 @@ class App {
       await this.scenery.preload(cfg.lat, cfg.lon, Math.min(12, this.radiusKm), (done, total) => {
         setLoading(`Loading scenery around ${cfg.airport.icao}… (${done}/${total})`, (0.6 * done) / total);
       });
-      setLoading(`Starting the flight model at ${cfg.airport.icao} runway ${cfg.runway.id}…`, 0.65);
+      setLoading(`Starting the ${def.short} at ${cfg.airport.icao} runway ${cfg.runway.id}…`, 0.65);
+      this.sim.setAircraft(await aircraftData, def.Systems);
       await new Promise((r) => setTimeout(r, 0));
       this.sim.start(cfg);
+      this.def = def;
+      document.body.dataset.aircraft = def.id;
       this.sky.setVisibility(cfg.visibilityM);
       this.speedUp = 1;
       this.paused = false;
@@ -270,19 +336,7 @@ class App {
         });
       }
       this.nasal.reset();
-      if (!this.model) {
-        setLoading("Loading the Cessna 172P…", 0.75);
-        const lib = await ModelLibrary.load("data/aircraft/c172p/model", this.renderer);
-        this.model = await loadModel(lib, lib.manifest.root, { props: this.sim.props, base: "/", nasal: this.nasal, commands: {} });
-        this.model.pickMeshes = [];
-        this.model.root.traverse((o) => {
-          if (!o.isMesh) return;
-          for (let n = o; n; n = n.parent) {
-            if (n.userData.pick) { this.model.pickMeshes.push(o); break; }
-          }
-        });
-        this.aircraftGroup.add(this.model.root);
-      }
+      await this.useAircraft(def);
       if (cfg.onGround) {
         // Hold the aircraft while the engine settles from JSBSim's running
         // start; B releases the parking brake.
@@ -302,8 +356,9 @@ class App {
       this.flying = true;
       document.body.classList.add("flying");
       const where = cfg.onGround ? `runway ${cfg.runway.id}` : sel.position === "final" ? `final approach, runway ${cfg.runway.id}` : "in the air";
-      this.hud.message(`${cfg.airport.name} (${cfg.airport.icao}), ${where}`, 4);
+      this.hud.message(`${def.short} · ${cfg.airport.name} (${cfg.airport.icao}), ${where}`, 4);
       if (cfg.onGround && cfg.running) this.hud.message("Parking brake set: B releases it, Page Up adds power", 6);
+      if (cfg.running && def.id === "f16") this.hud.message("Throttle above 50% is afterburner · g gear up, G gear down", 6);
       if (!cfg.running) this.hud.message("Engine off: Shift+S runs the autostart", 6);
       // Handle for the browser tests and for poking around in the console.
       window.__fg = this;
@@ -456,11 +511,11 @@ class App {
     this.objects.update(dt, this.camera, this.scenery, ac.lat, ac.lon);
     const listener = this.views.view.type === "cockpit" && !this.debugCamera ? 0
       : this.camera.position.distanceTo(this.tmpPos.setFromMatrixPosition(this.aircraftGroup.matrix));
-    this.sound.update(dt, listener);
+    this.sound?.update(dt, listener);
     this.sky.update(this.frame, this.camera, this.sim.date);
     this.lights.update(this.time);
     sceneryUniforms.time.value = this.time;
-    this.hud.update(dt, this.sim.props, { view: info.name });
+    this.hud.update(dt, this.sim.props, { view: info.name, aircraft: this.def?.id });
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -472,7 +527,10 @@ class App {
     const agl = this.sim.props.get("/position/altitude-agl-ft");
     if (Math.hypot(dLat, dLon) < 1200 && agl < 3000 && agl > 200) {
       this.easterEggShown = true;
-      this.hud.message("Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.", 6);
+      // Fighter flyovers open the big games; the tight end spikes one for it.
+      this.hud.message(this.def?.id === "f16"
+        ? "Flyover at Levi's Stadium! 68,500 fans roar and a certain 49ers tight end spikes the ball."
+        : "Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.", 6);
     }
   }
 }

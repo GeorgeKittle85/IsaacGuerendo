@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FlightGear Web</title>
-  <meta name="description" content="FlightGear in the browser: the JSBSim flight model compiled to WebAssembly flies FlightGear's Cessna 172P over FlightGear's San Francisco Bay Area scenery.">
+  <meta name="description" content="FlightGear in the browser: the JSBSim flight model compiled to WebAssembly flies FlightGear's Cessna 172P or an F-16 Fighting Falcon over FlightGear's San Francisco Bay Area scenery.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%233b82f6' d='M16 2l3 10 11 4-11 3-3 11-3-11-11-3 11-4z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
   <script type="module" src="js/main.js"></script>
 </head>
-<body>
+<body data-aircraft="c172p">
   <canvas id="view" tabindex="0" aria-label="Flight simulator view"></canvas>
 
   <nav id="toolbar" aria-label="Simulator">
@@ -28,13 +28,18 @@
     <div class="cell extra"><span class="k">AGL</span><span class="v" data-k="agl">0</span><span class="u">ft</span></div>
     <div class="cell"><span class="k">HDG</span><span class="v" data-k="hdg">000</span><span class="u">°M</span></div>
     <div class="cell"><span class="k">VS</span><span class="v" data-k="vs">0</span><span class="u">fpm</span></div>
+    <div class="cell extra" data-only="f16"><span class="k">MACH</span><span class="v" data-k="mach">0.00</span></div>
+    <div class="cell extra" data-only="f16"><span class="k">G</span><span class="v" data-k="g">1.0</span></div>
     <div class="cell"><span class="k">THR</span><span class="v" data-k="thr">0%</span></div>
-    <div class="cell extra"><span class="k">RPM</span><span class="v" data-k="rpm">0</span></div>
-    <div class="cell extra"><span class="k">MIX</span><span class="v" data-k="mix">0%</span></div>
-    <div class="cell"><span class="k">FLAPS</span><span class="v" data-k="flaps">0°</span></div>
+    <div class="cell extra" data-only="c172p"><span class="k">RPM</span><span class="v" data-k="rpm">0</span></div>
+    <div class="cell" data-only="f16"><span class="k">N2</span><span class="v" data-k="n2">0</span><span class="u">%</span></div>
+    <div class="cell extra" data-only="c172p"><span class="k">MIX</span><span class="v" data-k="mix">0%</span></div>
+    <div class="cell" data-only="c172p"><span class="k">FLAPS</span><span class="v" data-k="flaps">0°</span></div>
+    <div class="cell" data-only="f16"><span class="k">GEAR</span><span class="v" data-k="gear">DOWN</span></div>
+    <div class="cell extra" data-only="f16"><span class="k">SPD BRK</span><span class="v" data-k="sbrk">in</span></div>
     <div class="cell extra"><span class="k">TRIM</span><span class="v" data-k="trim">0</span></div>
     <div class="cell"><span class="k">BRAKES</span><span class="v" data-k="brk">off</span></div>
-    <div class="cell extra"><span class="k">MAGS</span><span class="v" data-k="mag">OFF</span></div>
+    <div class="cell extra" data-only="c172p"><span class="k">MAGS</span><span class="v" data-k="mag">OFF</span></div>
     <div class="cell extra"><span class="k">FUEL</span><span class="v" data-k="fuel">0</span></div>
     <div class="cell extra wide"><span class="k">VIEW</span><span class="v" data-k="view"></span></div>
     <div class="cell extra"><span class="k">FPS</span><span class="v" data-k="fps">0</span></div>
@@ -57,9 +62,13 @@
     <form class="panel" id="menu-form" autocomplete="off">
       <header>
         <h1>FlightGear <span>Web</span></h1>
-        <p class="lede">FlightGear's Cessna 172P, flown by the JSBSim flight model compiled to WebAssembly, over FlightGear's own San Francisco Bay Area scenery.</p>
+        <p class="lede">The JSBSim flight model compiled to WebAssembly, over FlightGear's own San Francisco Bay Area scenery.</p>
       </header>
       <div class="grid">
+        <fieldset class="span2 ac-picker">
+          <legend>Aircraft</legend>
+          <div id="m-aircraft-cards" class="ac-cards"></div>
+        </fieldset>
         <label>Airport
           <select id="m-airport"></select>
         </label>
@@ -113,8 +122,8 @@
         <button id="m-help" type="button">Keys</button>
       </footer>
       <p class="credits">
-        Aircraft, scenery and systems: <a href="https://www.flightgear.org/" target="_blank" rel="noopener">FlightGear</a> (GPL).
-        Flight model: <a href="https://github.com/JSBSim-Team/jsbsim" target="_blank" rel="noopener">JSBSim</a> (LGPL).
+        Cessna, scenery and systems: <a href="https://www.flightgear.org/" target="_blank" rel="noopener">FlightGear</a> (GPL).
+        Flight model and F-16 aerodynamics: <a href="https://github.com/JSBSim-Team/jsbsim" target="_blank" rel="noopener">JSBSim</a> (LGPL/GPL).
         Rendering: <a href="https://threejs.org/" target="_blank" rel="noopener">three.js</a>.
       </p>
     </form>

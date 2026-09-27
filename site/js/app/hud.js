@@ -89,20 +89,33 @@ export class Hud {
     const hdg = Math.round(g("/orientation/heading-magnetic-deg")) % 360;
     set("hdg", String(hdg === 0 ? 360 : hdg).padStart(3, "0"));
     set("vs", (Math.round(g("/velocities/vertical-speed-fps") * 60 / 10) * 10).toString());
-    set("thr", `${Math.round(g("/controls/engines/engine[0]/throttle") * 100)}%`);
-    set("rpm", g("/engines/active-engine/rpm").toFixed(0));
-    set("mix", `${Math.round(g("/controls/engines/current-engine/mixture") * 100)}%`);
-    set("flaps", `${Math.round(g("/surface-positions/flap-pos-norm") * 30)}°`);
+    const thr = `${Math.round(g("/controls/engines/engine[0]/throttle") * 100)}%`;
     set("trim", (g("/controls/flight/elevator-trim") * 100).toFixed(0));
     const brakes = p.getBool("/controls/gear/brake-parking") ? "PARK" :
       Math.max(g("/controls/gear/brake-left"), g("/controls/gear/brake-right")) > 0.05 ? "ON" : "off";
     set("brk", brakes);
-    const fuel = g("/consumables/fuel/tank[0]/level-gal_us") + g("/consumables/fuel/tank[1]/level-gal_us");
-    set("fuel", `${fuel.toFixed(1)} gal`);
+    if (extra.aircraft === "f16") {
+      set("thr", p.getBool("/engines/engine[0]/augmentation") ? `${thr} AB` : thr);
+      set("n2", g("/engines/engine[0]/n2").toFixed(0));
+      set("mach", g("/velocities/mach").toFixed(2));
+      set("g", g("/accelerations/pilot-g").toFixed(1));
+      const gear = g("/gear/gear[0]/position-norm");
+      set("gear", gear > 0.99 ? "DOWN" : gear < 0.01 ? "UP" : "MOVING");
+      const sb = g("/surface-positions/speedbrake-pos-norm");
+      set("sbrk", sb < 0.02 ? "in" : `${Math.round(sb * 60)}°`);
+      const lbs = g("/consumables/fuel/tank[0]/level-lbs") + g("/consumables/fuel/tank[1]/level-lbs");
+      set("fuel", `${Math.round(lbs).toLocaleString("en-US")} lb`);
+    } else {
+      set("thr", thr);
+      set("rpm", g("/engines/active-engine/rpm").toFixed(0));
+      set("mix", `${Math.round(g("/controls/engines/current-engine/mixture") * 100)}%`);
+      set("flaps", `${Math.round(g("/surface-positions/flap-pos-norm") * 30)}°`);
+      const fuel = g("/consumables/fuel/tank[0]/level-gal_us") + g("/consumables/fuel/tank[1]/level-gal_us");
+      set("fuel", `${fuel.toFixed(1)} gal`);
+      set("mag", ["OFF", "R", "L", "BOTH"][g("/controls/switches/magnetos")] ?? "?");
+    }
     set("view", extra.view);
     set("fps", String(this.fps));
-    const mags = ["OFF", "R", "L", "BOTH"][g("/controls/switches/magnetos")] ?? "?";
-    set("mag", mags);
     c.warn?.classList.toggle("on", g("/sim/alarms/stall-warning") > 0.5);
   }
 }

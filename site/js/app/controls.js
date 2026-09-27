@@ -44,9 +44,47 @@ export class Controls {
   /** Hard-coded flaps movement in 3 equal steps (the c172p has 0/10/20/30°). */
   flapsDown(step) {
     if (!step) return;
+    if (this.app.def?.autoFlaps) {
+      this.app.message?.("The F-16's flaps are automatic (flaperons and leading edge flaps)");
+      return;
+    }
     const v = clamp(0.3333334 * step + this.p.get("/controls/flight/flaps"), 0, 1);
     this.p.set("/controls/flight/flaps", v);
     this.app.message?.(`Flaps ${Math.round(v * 3) * 10}°`);
+  }
+
+  /** controls.gearDown(): the gear does not come up with weight on the wheels. */
+  gearDown(v) {
+    if (!this.app.def?.retractableGear) return;
+    const p = this.p;
+    if (v < 0) {
+      if ([0, 1, 2].some((i) => p.getBool(`/gear/gear[${i}]/wow`))) {
+        this.app.message?.("Gear: weight on wheels, staying down");
+        return;
+      }
+      p.set("/controls/gear/gear-down", 0);
+      this.app.message?.("Gear up");
+    } else if (v > 0) {
+      p.set("/controls/gear/gear-down", 1);
+      this.app.message?.("Gear down");
+    }
+  }
+
+  toggleGear() {
+    this.gearDown(this.p.getBool("/controls/gear/gear-down") ? -1 : 1);
+  }
+
+  /** Speed brake: FlightGear's k/K steps and Ctrl+B toggle.  The F-16's opens fully or not at all. */
+  speedbrake(v) {
+    if (!this.app.def?.speedbrake) return;
+    const on = v === undefined ? this.p.get("/controls/flight/speedbrake") < 0.5 : v > 0;
+    this.p.set("/controls/flight/speedbrake", on ? 1 : 0);
+    this.app.message?.(`Speed brake ${on ? "out" : "in"}`);
+  }
+
+  toggleCanopy() {
+    const msg = this.app.aircraft?.toggleCanopy?.();
+    if (msg) this.app.message?.(msg);
   }
 
   // ------------------------------------------------------------- engine
@@ -62,7 +100,7 @@ export class Controls {
 
   /** controls.adjMixture (c172p override): speed * THROTTLE_RATE * frame time. */
   adjMixture(speed) {
-    this.app.aircraft.adjustMixture(speed, this.app.frameDt ?? 1 / 60);
+    this.app.aircraft.adjustMixture?.(speed, this.app.frameDt ?? 1 / 60);
   }
 
   setMixture(v) {
@@ -70,7 +108,7 @@ export class Controls {
   }
 
   stepMagnetos(change) {
-    if (!change) return;
+    if (!change || !this.app.aircraft.stepMagnetos) return;
     this.app.aircraft.stepMagnetos(change);
     const names = ["OFF", "RIGHT", "LEFT", "BOTH"];
     this.app.message?.(`Magnetos: ${names[this.p.get("/controls/switches/magnetos")] ?? "?"}`);
