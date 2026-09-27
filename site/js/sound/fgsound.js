@@ -249,11 +249,12 @@ export class SoundSystem {
     const data = await res.json();
     this.config = ConfigNode.from(data.config);
     this.files = data.files;
+    // Unlocked before the configuration arrived (the Fly click): fetch now.
+    if (this.ctx) this.unlock();
   }
 
   /** Call from a user gesture: browsers only start audio after one. */
   unlock() {
-    if (!this.config) return;
     if (!this.ctx) {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       if (!Ctx) return;
@@ -261,6 +262,8 @@ export class SoundSystem {
       this.master = this.ctx.createGain();
       this.master.gain.value = this.muted ? 0 : this.volume;
       this.master.connect(this.ctx.destination);
+    }
+    if (this.config && !this.buffers.size) {
       for (const file of new Set(Object.values(this.files))) {
         this.buffers.set(file, fetch(`${this.baseUrl}/${file}`)
           .then((r) => r.arrayBuffer())
@@ -277,7 +280,7 @@ export class SoundSystem {
     this.props = props;
     for (const s of this.sounds) s.sample.stop();
     this.sounds = [];
-    if (!this.ctx) return;
+    if (!this.ctx || !this.config) return;
     const fx = this.config.getChild("fx");
     for (const n of fx?.children ?? []) {
       try {
@@ -286,6 +289,14 @@ export class SoundSystem {
         console.warn("sound", n.name, err.message);
       }
     }
+  }
+
+  /** Stops this aircraft's sounds when another aircraft takes over. */
+  detach() {
+    for (const s of this.sounds) s.sample.stop();
+    this.sounds = [];
+    this.props = null;
+    this.suspend(true);
   }
 
   setMuted(m) {

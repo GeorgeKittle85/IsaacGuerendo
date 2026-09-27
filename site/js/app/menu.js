@@ -1,7 +1,10 @@
-// The start menu: airport, runway, start position, time of day and weather.
-// The last choices are remembered in this browser (localStorage).
+// The start menu: aircraft, airport, runway, start position, time of day and
+// weather.  The last choices are remembered in this browser (localStorage).
+
+import { AIRCRAFT, aircraftById } from "../aircraft/registry.js";
 
 const $ = (id) => document.getElementById(id);
+const SVG_NS = "http://www.w3.org/2000/svg";
 const STORE_KEY = "fgweb.menu.v1";
 
 function load() {
@@ -45,6 +48,7 @@ export class Menu {
       airport: $("m-airport"), runway: $("m-runway"), position: $("m-position"), time: $("m-time"),
       vis: $("m-vis"), windDir: $("m-wind-dir"), windKt: $("m-wind-kt"), range: $("m-range"),
     };
+    this.buildAircraftPicker();
     for (const a of airports) {
       const o = document.createElement("option");
       o.value = a.icao;
@@ -55,6 +59,7 @@ export class Menu {
     // Smaller scenery radius by default on phones and tablets.
     if (!saved && app.mobile) this.f.range.value = "15";
     this.f.airport.value = saved?.airport && airports.some((a) => a.icao === saved.airport) ? saved.airport : "KSFO";
+    this.aircraft = aircraftById(saved?.aircraft).id;
     if (saved) {
       if (saved.position) this.f.position.value = saved.position;
       if (saved.time) this.f.time.value = saved.time;
@@ -81,6 +86,48 @@ export class Menu {
     $("m-help").addEventListener("click", () => this.app.toggleHelp(true));
   }
 
+  /** One card per aircraft: a radio group, so arrow keys switch between them. */
+  buildAircraftPicker() {
+    const box = $("m-aircraft-cards");
+    this.aircraftInputs = AIRCRAFT.map((a) => {
+      const label = document.createElement("label");
+      label.className = "ac-card";
+      const input = document.createElement("input");
+      input.type = "radio";
+      input.name = "aircraft";
+      input.value = a.id;
+      input.addEventListener("change", () => { this.aircraft = a.id; });
+      const svg = document.createElementNS(SVG_NS, "svg");
+      svg.setAttribute("viewBox", "0 0 64 64");
+      svg.setAttribute("aria-hidden", "true");
+      svg.classList.add("ac-icon");
+      const path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", a.icon);
+      svg.append(path);
+      const text = document.createElement("span");
+      text.className = "ac-text";
+      const name = document.createElement("span");
+      name.className = "ac-name";
+      name.textContent = a.name;
+      const blurb = document.createElement("span");
+      blurb.className = "ac-blurb";
+      blurb.textContent = a.blurb;
+      text.append(name, blurb);
+      label.append(input, svg, text);
+      box.append(label);
+      return input;
+    });
+  }
+
+  get aircraft() {
+    return this.aircraftInputs.find((i) => i.checked)?.value ?? AIRCRAFT[0].id;
+  }
+
+  set aircraft(id) {
+    for (const i of this.aircraftInputs) i.checked = i.value === id;
+    $("m-fly").textContent = `Fly the ${aircraftById(id).short}`;
+  }
+
   get airport() {
     return this.airports.find((a) => a.icao === this.f.airport.value) ?? this.airports[0];
   }
@@ -103,6 +150,7 @@ export class Menu {
 
   selection() {
     return {
+      aircraft: this.aircraft,
       airport: this.f.airport.value,
       runway: this.f.runway.value,
       position: this.f.position.value,
@@ -114,9 +162,10 @@ export class Menu {
     };
   }
 
-  /** ?autostart&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25 */
+  /** ?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25 */
   readParams(params) {
     const sel = this.selection();
+    if (params.get("aircraft")) sel.aircraft = aircraftById(params.get("aircraft").toLowerCase()).id;
     if (params.get("airport")) sel.airport = params.get("airport").toUpperCase();
     const apt = this.airports.find((a) => a.icao === sel.airport) ?? this.airport;
     sel.airport = apt.icao;

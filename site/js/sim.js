@@ -14,16 +14,23 @@ import { updateTweens, clearTweens } from "./props/sgexpr.js";
 
 export class Simulation {
   /**
-   * @param jsb   JSBSim wrapper (fdm/jsbsim.js)
-   * @param data  {fdm, props, rules}: the JSON bundles from tools/build_*.py
+   * @param jsb       JSBSim wrapper (fdm/jsbsim.js)
+   * @param data      {fdm, props, rules}: the JSON bundles from tools/build_*.py
+   * @param Aircraft  the aircraft's systems class (aircraft/c172p.js, aircraft/f16.js)
    */
-  constructor(jsb, data) {
+  constructor(jsb, data, Aircraft = C172P) {
     this.jsb = jsb;
-    this.data = data;
+    this.setAircraft(data, Aircraft);
     // Handles resolve lazily, so the tree can be used before the first start.
     this.props = new PropertyTree(jsb);
     this.elapsed = 0;
     this.magTimer = 0;
+  }
+
+  /** Selects the aircraft for the next start(); the property tree is kept. */
+  setAircraft(data, Aircraft) {
+    this.data = data;
+    this.Aircraft = Aircraft;
   }
 
   /**
@@ -37,7 +44,7 @@ export class Simulation {
     const props = (this.props ??= new PropertyTree(this.jsb));
     clearTweens();
     this.fdm = new FDMInterface(this.jsb, props);
-    this.aircraft = new C172P(props);
+    this.aircraft = new this.Aircraft(props);
     this.startCfg = start;
     this.fdm.init({
       fdmBundle: this.data.fdm,
@@ -57,12 +64,7 @@ export class Simulation {
         for (let i = 0; i < 2; i++) for (const r of this.rules) r.update(0.01);
       },
       beforeTrim: () => {
-        // Lean for the altitude like the c172p's state manager does: full
-        // rich (the knob's 1.0) floods the engine above about 3000 ft.
-        if (start.running) {
-          const alt = start.onGround ? props.get("/position/ground-elev-ft") : start.altitudeFt;
-          props.set("/controls/engines/current-engine/mixture", this.aircraft.autoMixture(alt || 0));
-        }
+        this.aircraft.beforeTrim?.(start);
         this.aircraft.update(0.01);
         for (let i = 0; i < 2; i++) for (const r of this.rules) r.update(0.01);
       },
@@ -102,6 +104,7 @@ export class Simulation {
     p.set("/environment/visibility-m", start.visibilityM ?? 30000);
     p.set("/environment/pressure-sea-level-inhg", 29.92);
     if (start.flaps) p.set("/controls/flight/flaps", start.flaps);
+    if (start.gearDown === false) p.set("/controls/gear/gear-down", 0);
     const mv = this.jsb.magvar(start.lat, start.lon, 0);
     this.fdm.magvar = mv;
     p.set("/environment/magnetic-variation-deg", mv);

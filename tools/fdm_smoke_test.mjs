@@ -1,7 +1,8 @@
 // Headless smoke test for the simulation core the website uses:
 // JSBSim (WebAssembly) + FlightGear's c172p + property rules + instruments.
 // Starts on a flat runway with the engine running, applies full power,
-// rotates at 55 KIAS and holds a climb attitude.
+// rotates at 55 KIAS and holds a climb attitude.  Then the same for JSBSim's
+// F-16: afterburner, rotate at 150 KIAS, gear up, and a cold engine start.
 //
 // Usage: node tools/fdm_smoke_test.mjs
 import { readFileSync } from "node:fs";
@@ -10,6 +11,7 @@ import path from "node:path";
 import createJSBSim from "../site/wasm/jsbsim.mjs";
 import { JSBSim } from "../site/js/fdm/jsbsim.js";
 import { Simulation } from "../site/js/sim.js";
+import { F16, F16_PROPS, F16_RULES } from "../site/js/aircraft/f16.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const data = (p) => JSON.parse(readFileSync(path.join(here, "../site/data", p), "utf8"));
@@ -69,3 +71,48 @@ if (maxAgl < 300) {
   process.exit(1);
 }
 console.log(`PASS: climbed to ${maxAgl.toFixed(0)} ft AGL`);
+
+// ------------------------------------------------------------------ F-16
+
+const f16 = new Simulation(jsb, { fdm: data("fdm/f16.json"), props: F16_PROPS, rules: F16_RULES }, F16);
+const fail = (msg) => {
+  console.error(`FAIL: ${msg}`);
+  process.exit(1);
+};
+const q = (p) => f16.props.get(p);
+const logF16 = (t) => console.log(
+  `t=${t.toFixed(0).padStart(3)}s agl=${q("/position/altitude-agl-ft").toFixed(0).padStart(5)}ft ` +
+  `ias=${q("/instrumentation/airspeed-indicator/indicated-speed-kt").toFixed(0).padStart(4)}kt ` +
+  `mach=${q("/velocities/mach").toFixed(2)} n2=${q("/engines/engine[0]/n2").toFixed(0).padStart(3)}% ` +
+  `ab=${+f16.props.getBool("/engines/engine[0]/augmentation")} thrust=${q("/engines/engine[0]/thrust_lb").toFixed(0).padStart(5)}lb ` +
+  `pitch=${q("/orientation/pitch-deg").toFixed(1).padStart(5)} gear=${q("/gear/gear[0]/position-norm").toFixed(2)}`);
+
+f16.start({ lat: 37.6117, lon: -122.3583, headingDeg: 298, onGround: true, running: true });
+console.log(`F-16 ready: ${f16.fdm.turbine ? "turbine" : "no turbine"}, trim ${f16.fdm.trimmed ? "ok" : "failed"}`);
+f16.props.set("/controls/engines/engine[0]/throttle", 1);
+let maxAglF16 = 0;
+for (let frame = 0; frame <= 60 * 40; frame++) {
+  if (q("/velocities/airspeed-kt") > 150 || q("/position/altitude-agl-ft") > 10) {
+    f16.props.set("/controls/flight/elevator", Math.max(-1, Math.min(1, -0.08 * (12 - q("/orientation/pitch-deg")))));
+  }
+  if (q("/position/altitude-agl-ft") > 100) f16.props.set("/controls/gear/gear-down", 0);
+  f16.props.set("/controls/flight/aileron", Math.max(-1, Math.min(1, -0.03 * q("/orientation/roll-deg"))));
+  if (frame % (60 * 10) === 0) logF16(frame / 60);
+  f16.update(dt);
+  maxAglF16 = Math.max(maxAglF16, q("/position/altitude-agl-ft"));
+}
+if (f16.fdm.crashed) fail("F-16 crashed");
+if (maxAglF16 < 2000) fail(`F-16 expected above 2000 ft AGL, reached ${maxAglF16.toFixed(0)} ft`);
+if (q("/gear/gear[0]/position-norm") > 0.01) fail("F-16 gear did not retract");
+console.log(`PASS: F-16 climbed to ${maxAglF16.toFixed(0)} ft AGL with the gear up`);
+
+f16.start({ lat: 37.6117, lon: -122.3583, headingDeg: 298, onGround: true, running: false });
+console.log(f16.aircraft.autostart());
+let startedAt = null;
+for (let frame = 0; frame <= 60 * 60 && startedAt === null; frame++) {
+  f16.update(dt);
+  if (f16.props.getBool("/engines/engine[0]/running")) startedAt = frame / 60;
+}
+if (startedAt === null) fail("F-16 engine did not start");
+logF16(startedAt);
+console.log(`PASS: F-16 engine started in ${startedAt.toFixed(0)} s`);

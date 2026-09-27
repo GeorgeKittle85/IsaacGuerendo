@@ -22,10 +22,16 @@ export const HELP = [
   ]],
   ["Engine", [
     ["PgUp PgDn / 9 3", "Throttle"],
-    ["m M", "Mixture richer / leaner"],
-    ["{ }", "Magnetos (key switch)"],
+    ["m M", "Mixture richer / leaner (Cessna)"],
+    ["{ }", "Magnetos (Cessna key switch)"],
     ["s", "Starter (hold)"],
     ["Shift+S", "Autostart"],
+  ]],
+  ["F-16", [
+    ["Throttle > 50%", "Afterburner"],
+    ["g G", "Gear up / down"],
+    ["k K / Ctrl+B", "Speed brake in / out / toggle"],
+    ["c", "Canopy (on the ground)"],
   ]],
   ["Ground", [
     ["b", "Brakes (hold)"],
@@ -154,6 +160,7 @@ export class Input {
     }
     if (e.ctrlKey || e.metaKey) {
       if (key === "v" || key === "V") { app.setView(0); return true; }
+      if ((key === "b" || key === "B") && app.def?.speedbrake) { if (!e.repeat) c.speedbrake(); return true; }
       if (key === "x" || key === "X") { app.views.resetFov(); return true; }
       return false;
     }
@@ -184,6 +191,11 @@ export class Input {
       case "}": if (!e.repeat) c.stepMagnetos(1); return true;
       case "s": return this.hold(e, () => c.startEngine(1), () => c.startEngine(0));
       case "S": if (!e.repeat) app.autostart(); return true;
+      case "g": if (!e.repeat) c.gearDown(-1); return true;
+      case "G": if (!e.repeat) c.gearDown(1); return true;
+      case "k": if (!e.repeat) c.speedbrake(-1); return true;
+      case "K": if (!e.repeat) c.speedbrake(1); return true;
+      case "c": if (!e.repeat) c.toggleCanopy(); return true;
       case "v": if (!e.repeat) app.stepView(1); return true;
       case "V": if (!e.repeat) app.stepView(-1); return true;
       case "x": app.zoom(-1); return true;
@@ -473,6 +485,8 @@ export class Input {
       if (edge(3)) c.flapsDown(1);
       if (edge(4)) this.app.stepView(-1);
       if (edge(5)) this.app.stepView(1);
+      if (edge(10)) c.toggleGear();
+      if (edge(11)) c.speedbrake();
       if (edge(9)) this.app.togglePause();
       if (edge(8)) this.app.toggleHelp();
       if (pressed(12)) c.elevatorTrim(0.03 * dt);

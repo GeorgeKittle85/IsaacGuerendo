@@ -188,6 +188,16 @@ export class C172P {
     }
   }
 
+  /** Before the trim of a running start: lean for the altitude. */
+  beforeTrim(start) {
+    // Like the c172p's state manager: full rich (the knob's 1.0) floods the
+    // engine above about 3000 ft.
+    if (!start.running) return;
+    const p = this.props;
+    const alt = start.onGround ? p.get("/position/ground-elev-ft") : start.altitudeFt;
+    p.set("/controls/engines/current-engine/mixture", this.autoMixture(alt || 0));
+  }
+
   /**
    * The leaned mixture knob setting for a density altitude, from the c172p's
    * Systems/c172p-engine.xml "auto-engine-mixture" table.

@@ -4,7 +4,7 @@
 //
 // Usage:
 //   npm install            (playwright-core)
-//   node tools/e2e_test.mjs [--out build/e2e] [--chromium /path/to/chrome]
+//   node tools/e2e_test.mjs [--aircraft c172p|f16] [--out build/e2e] [--chromium /path/to/chrome]
 //
 // Without a GPU, Chromium renders with SwiftShader: it is slow but works.
 
@@ -22,12 +22,19 @@ const arg = (name, def) => {
 };
 const outDir = arg("--out", path.join(here, "../build/e2e"));
 const executablePath = arg("--chromium", process.env.CHROMIUM || undefined);
+const aircraft = arg("--aircraft", "c172p");
+// Takeoff: rotate speed and climb attitude, and the climb speeds to expect.
+const TAKEOFF = {
+  c172p: { rotateKt: 55, pitch: 8, gain: 0.06, ias: [60, 100] },
+  f16: { rotateKt: 150, pitch: 12, gain: 0.08, ias: [150, 500], gearUp: true },
+}[aircraft];
+if (!TAKEOFF) throw new Error(`unknown aircraft ${aircraft}`);
 mkdirSync(outDir, { recursive: true });
 
 const TYPES = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript", ".css": "text/css",
   ".json": "application/json", ".wasm": "application/wasm", ".webp": "image/webp", ".png": "image/png",
-  ".gz": "application/gzip",
+  ".gz": "application/gzip", ".glb": "model/gltf-binary", ".wav": "audio/wav",
 };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
@@ -60,7 +67,7 @@ const check = (cond, msg) => {
 
 try {
   const t0 = Date.now();
-  await page.goto(`${base}/?autostart&airport=KSFO&runway=28R&time=afternoon&wind=280@8`);
+  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=28R&time=afternoon&wind=280@8`);
   await page.waitForFunction(() => window.__fg?.flying === true, null, { timeout: 300000, polling: 500 });
   check(true, `simulator running after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const start = await page.evaluate(() => {
@@ -69,10 +76,11 @@ try {
   });
   check(start.wow && start.agl < 10, `on the runway (AGL ${start.agl.toFixed(1)} ft)`);
   check(start.park === 1, "parking brake set at the start");
-  await page.screenshot({ path: path.join(outDir, "cockpit-runway.png") });
+  check(await page.evaluate(() => window.__fg.def.id) === aircraft, `flying the ${aircraft}`);
+  await page.screenshot({ path: path.join(outDir, `${aircraft}-cockpit-runway.png`) });
 
-  // Take off: brake off, full power, rotate at 55 KIAS and hold 8 degrees.
-  await page.evaluate(() => {
+  // Take off: brake off, full power, rotate and hold the climb attitude.
+  await page.evaluate((to) => {
     const a = window.__fg;
     const p = a.sim.props;
     a.speedUp = 4;
@@ -81,14 +89,15 @@ try {
     const hdg0 = p.get("/orientation/heading-deg");
     a.onFrame = () => {
       const g = (k) => p.get(k);
-      if (g("/velocities/airspeed-kt") > 55 || g("/position/altitude-agl-ft") > 5) {
-        p.set("/controls/flight/elevator", Math.max(-1, Math.min(1, -0.06 * (8 - g("/orientation/pitch-deg")))));
+      if (g("/velocities/airspeed-kt") > to.rotateKt || g("/position/altitude-agl-ft") > 5) {
+        p.set("/controls/flight/elevator", Math.max(-1, Math.min(1, -to.gain * (to.pitch - g("/orientation/pitch-deg")))));
       }
+      if (to.gearUp && g("/position/altitude-agl-ft") > 60) a.controls.gearDown(-1);
       p.set("/controls/flight/aileron", Math.max(-1, Math.min(1, -0.03 * g("/orientation/roll-deg"))));
       const e = ((hdg0 - g("/orientation/heading-deg") + 540) % 360) - 180;
       p.set("/controls/flight/rudder", Math.max(-1, Math.min(1, 0.08 * e)));
     };
-  });
+  }, TAKEOFF);
   let state = null;
   const t1 = Date.now();
   while (Date.now() - t1 < 600000) {
@@ -99,6 +108,7 @@ try {
       return {
         t: a.sim.elapsed, agl: g("/position/altitude-agl-ft"), ias: g("/instrumentation/airspeed-indicator/indicated-speed-kt"),
         vsi: g("/instrumentation/vertical-speed-indicator/indicated-speed-fpm"), crashed: a.sim.fdm.crashed, fps: a.hud.fps,
+        gearDown: g("/controls/gear/gear-down"),
       };
     });
     console.log(`     t=${state.t.toFixed(0)}s agl=${state.agl.toFixed(0)}ft ias=${state.ias.toFixed(0)}kt vsi=${state.vsi.toFixed(0)}fpm fps=${state.fps}`);
@@ -106,10 +116,11 @@ try {
   }
   check(!state.crashed, "no crash");
   check(state.agl > 400, `climbed to ${state.agl.toFixed(0)} ft AGL`);
-  check(state.ias > 60 && state.ias < 100, `climb speed ${state.ias.toFixed(0)} KIAS`);
+  check(state.ias > TAKEOFF.ias[0] && state.ias < TAKEOFF.ias[1], `climb speed ${state.ias.toFixed(0)} KIAS`);
+  if (TAKEOFF.gearUp) check(state.gearDown === 0, "gear coming up");
   await page.evaluate(() => window.__fg.setView(2));
   await page.waitForTimeout(3000);
-  await page.screenshot({ path: path.join(outDir, "chase-climb.png") });
+  await page.screenshot({ path: path.join(outDir, `${aircraft}-chase-climb.png`) });
   check(errors.length === 0, `no page errors${errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""}`);
 } catch (err) {
   check(false, err.message);
