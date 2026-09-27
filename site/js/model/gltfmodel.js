@@ -8,6 +8,8 @@
 //     model's actions (the pose at `frame`), scaled by a property value, so a
 //     demo animation that shows a surface at one deflection is enough to
 //     drive it both ways;
+//   - "shift" parts move a bone along a direction in model axes, e.g. a
+//     wheel riding up its strut as the gear compresses;
 //   - "spin" parts turn wheels by the distance rolled.
 //
 // The model is placed in FlightGear's model axes (x aft, y right, z up, metres)
@@ -113,9 +115,23 @@ export class GLTFAircraftModel {
       this.boneAnims.push({ ...b, node: bone, rest, axis, angle });
     }
 
-    this.spins = (def.spin ?? []).map((w) => ({ ...w, node: this.bones.get(nodeName(w.bone)), angle: 0 }))
-      .filter((w) => w.node)
-      .map((w) => ({ ...w, rest: w.node.quaternion.clone() }));
+    // Shifts: the model-axes direction (metres) in the bone's parent space.
+    this.root.updateMatrixWorld(true);
+    const rootInv = new THREE.Matrix4().copy(this.root.matrixWorld).invert();
+    this.shifts = [];
+    for (const sh of def.shift ?? []) {
+      const node = this.bones.get(nodeName(sh.bone));
+      if (!node) continue;
+      const parent = new THREE.Matrix4().multiplyMatrices(rootInv, node.parent.matrixWorld);
+      const dir = new THREE.Vector3(...sh.dir).applyMatrix3(new THREE.Matrix3().setFromMatrix4(parent).invert());
+      this.shifts.push({ ...sh, node, dir, rest: node.position.clone() });
+    }
+
+    this.spins = [];
+    for (const w of def.spin ?? []) {
+      const node = this.bones.get(nodeName(w.bone));
+      if (node) this.spins.push({ ...w, node, axis: new THREE.Vector3(...w.axis), rest: node.quaternion.clone(), angle: 0 });
+    }
     this.extras = def.extras?.(this.root, props) ?? [];
     this.tmpQ = new THREE.Quaternion();
   }
@@ -132,7 +148,9 @@ export class GLTFAircraftModel {
       const v = Math.max(0, Math.min(1, c.value(p)));
       c.action.time = c.t0 + (c.t1 - c.t0) * v;
     }
-    // Wheels start from rest each frame (unless the gear clip sets them).
+    // Shifted and spinning bones start from rest each frame (unless the
+    // gear clip sets them).
+    for (const sh of this.shifts) sh.node.position.copy(sh.rest);
     for (const w of this.spins) w.node.quaternion.copy(w.rest);
     this.mixer.update(0);
     const tq = this.tmpQ;
@@ -140,9 +158,14 @@ export class GLTFAircraftModel {
       tq.setFromAxisAngle(b.axis, b.angle * b.value(p));
       b.node.quaternion.copy(b.rest).multiply(tq);
     }
+    for (const sh of this.shifts) {
+      const v = sh.value(p);
+      if (Number.isFinite(v)) sh.node.position.addScaledVector(sh.dir, v);
+    }
     for (const w of this.spins) {
-      // Wheels roll only while down; rollspeed is in m/s at the tyre.
-      w.angle = (w.angle + (dt * w.speed(p)) / w.radius) % (2 * Math.PI);
+      // Rollspeed is in m/s at the tyre.
+      const speed = w.speed(p);
+      if (Number.isFinite(speed)) w.angle = (w.angle + (dt * speed) / w.radius) % (2 * Math.PI);
       tq.setFromAxisAngle(w.axis, w.angle * (w.sign ?? 1));
       w.node.quaternion.multiply(tq);
     }

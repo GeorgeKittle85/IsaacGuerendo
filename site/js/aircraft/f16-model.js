@@ -18,8 +18,12 @@ import * as THREE from "three";
 
 const D2R = Math.PI / 180;
 const SCALE = 0.544; // 15.06 m / 27.68 m
+// Wheels on the runway at rest: the main tyres' bottom (Blender z -4.12 in
+// the gear-down pose) 1.675 m below the VRP, JSBSim's resting height with
+// the struts compressed by REST_COMPRESSION.
+const OFFSET = [-0.46, 0, 0.566];
+const REST_COMPRESSION = [0.099, 0.070, 0.070]; // m: nose, left, right (gear[0..2])
 // Nozzle exit in model axes (Blender y 12.11, z -0.605, scaled and offset).
-const OFFSET = [-0.46, 0, 0.54];
 const NOZZLE = [12.11 * SCALE + OFFSET[0], 0, -0.605 * SCALE + OFFSET[2]];
 
 /** Paint and glass tweaks for the glTF's PBR materials. */
@@ -136,12 +140,20 @@ export const F16_MODEL = {
     { bone: "Front Flaps L", axis: [0, 1, 0], value: (p) => g(p, "fcs/lef-pos-deg") * D2R },
     { bone: "Front Flaps R", axis: [0, 1, 0], value: (p) => -g(p, "fcs/lef-pos-deg") * D2R },
   ],
+  // The wheels ride up and down with JSBSim's strut compression, so they stay
+  // on the runway (the model's struts do not compress): "G" carries the nose
+  // wheel and fork, "Wheel L/R" the main wheels.
+  shift: [["G", 0], ["Wheel L", 1], ["Wheel R", 2]].map(([bone, i]) => ({
+    bone, dir: [0, 0, 1],
+    value: (p) => Math.max(-0.15, Math.min(0.35, g(p, `/gear/gear[${i}]/compression-m`) - REST_COMPRESSION[i]))
+      * g(p, `/gear/gear[${i}]/position-norm`),
+  })),
   spin: [
-    // Main wheels: the bones' y axes are the axles (pointing outboard).
+    // Main wheels: the bones' y axes are the axles (pointing outboard), and
+    // their heads the hubs.  (The nose wheel's bone pivots above the hub and
+    // also moves the fork, so it does not spin.)
     { bone: "Wheel L", axis: [0, 1, 0], sign: 1, radius: 0.31, speed: (p) => g(p, "/gear/gear[1]/rollspeed-ms") },
     { bone: "Wheel R", axis: [0, 1, 0], sign: -1, radius: 0.31, speed: (p) => g(p, "/gear/gear[2]/rollspeed-ms") },
-    // Nose wheel: bone "G", axle along its z axis.
-    { bone: "G", axis: [0, 0, 1], sign: 1, radius: 0.22, speed: (p) => g(p, "/gear/gear[0]/rollspeed-ms") },
   ],
   extras: afterburner,
 };
