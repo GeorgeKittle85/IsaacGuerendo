@@ -22,6 +22,7 @@ export class FDMInterface {
     this.gear = [];
     this.accum = 0;
     this.crashed = false;
+    this.useFcsGearPos = false;
     this.magvar = 0;
     this.terrain = null; // {query(latRad, lonRad) -> {elev, nE, nN, nU, material}}
   }
@@ -130,6 +131,8 @@ export class FDMInterface {
       p.set(`/controls/engines/engine[${i}]/mixture`, start.running ? 1 : 0);
       p.set(`/controls/engines/engine[${i}]/magnetos`, start.running ? 3 : 0);
       p.set(`/controls/engines/engine[${i}]/starter`, false);
+      // Jet fuel shutoff (FlightGear's cutoff control); pistons ignore it.
+      p.set(`/controls/engines/engine[${i}]/cutoff`, !start.running);
       p.set(`/controls/engines/engine[${i}]/propeller-pitch`, 1);
       p.set(`/engines/engine[${i}]/running`, false);
     }
@@ -139,6 +142,7 @@ export class FDMInterface {
     const jsb = this.jsb;
     this.engines = 0;
     while (jsb.handle(`propulsion/engine[${this.engines}]/set-running`, false) >= 0) this.engines++;
+    this.turbine = jsb.handle("propulsion/engine[0]/n2", false) >= 0;
     this.tanks = 0;
     while (jsb.handle(`propulsion/tank[${this.tanks}]/contents-lbs`, false) >= 0) this.tanks++;
     for (let i = 0; i < this.tanks; i++) {
@@ -173,9 +177,9 @@ export class FDMInterface {
       fcsDr: n("fcs/rudder-cmd-norm"), fcsDs: n("fcs/steer-cmd-norm"), fcsYawTrim: n("fcs/yaw-trim-cmd-norm"),
       fcsDf: n("fcs/flap-cmd-norm"), fcsDsb: n("fcs/speedbrake-cmd-norm"), fcsDsp: n("fcs/spoiler-cmd-norm"),
       fcsLB: n("fcs/left-brake-cmd-norm"), fcsRB: n("fcs/right-brake-cmd-norm"), fcsCB: n("fcs/center-brake-cmd-norm"),
-      gearCmd: n("gear/gear-cmd-norm"),
+      gearCmd: n("gear/gear-cmd-norm"), gearPos: n("gear/gear-pos-norm"),
       activeEngine: n("propulsion/active_engine"), magnetoCmd: n("propulsion/magneto_cmd"),
-      starterCmd: n("propulsion/starter_cmd"),
+      starterCmd: n("propulsion/starter_cmd"), cutoffCmd: n("propulsion/cutoff_cmd"),
       windN: n("atmosphere/wind-north-fps"), windE: n("atmosphere/wind-east-fps"), windD: n("atmosphere/wind-down-fps"),
       windFromN: n("/environment/wind-from-north-fps"), windFromE: n("/environment/wind-from-east-fps"),
       windFromD: n("/environment/wind-from-down-fps"),
@@ -188,7 +192,7 @@ export class FDMInterface {
       const j = (s) => n(`propulsion/engine[${i}]/${s}`);
       this.engineNodes.push({
         throttle: c("throttle"), mixture: c("mixture"), pitch: c("propeller-pitch"),
-        feather: c("propeller-feather"), magnetos: c("magnetos"), starter: c("starter"),
+        feather: c("propeller-feather"), magnetos: c("magnetos"), starter: c("starter"), cutoff: c("cutoff"),
         fcsThrottle: n(`fcs/throttle-cmd-norm[${i}]`), fcsMixture: n(`fcs/mixture-cmd-norm[${i}]`),
         fcsAdvance: n(`fcs/advance-cmd-norm[${i}]`), fcsFeather: n(`fcs/feather-cmd-norm[${i}]`),
         setRunning: j("set-running"), running: e("running"),
@@ -201,6 +205,10 @@ export class FDMInterface {
         ffGph: e("fuel-flow-gph"), ffPph: e("fuel-flow_pph"), thrust: e("thrust_lb"),
         starterOut: e("starter"), cranking: e("cranking"),
         propRpm: e("thruster/rpm"), propPitch: e("thruster/pitch"), propTorque: e("thruster/torque"),
+        // Turbines (FGTurbine): spool speeds, and the afterburner, which
+        // JSBSim's augmentation method 2 lights above full dry throttle.
+        jN1: j("n1"), jN2: j("n2"), fcsThrottlePos: n(`fcs/throttle-pos-norm[${i}]`),
+        n1: e("n1"), n2: e("n2"), augmentation: e("augmentation"),
       });
     }
     this.tankNodes = [];
@@ -290,6 +298,7 @@ export class FDMInterface {
       n.activeEngine.set(i);
       n.magnetoCmd.set(e.magnetos.get());
       n.starterCmd.set(e.starter.get());
+      n.cutoffCmd.set(e.cutoff.get());
       e.setRunning.set(e.running.get());
     }
     n.activeEngine.set(-1);
@@ -351,6 +360,11 @@ export class FDMInterface {
       e.propRpm.set(e.jPropRpm.get());
       e.propPitch.set(e.jBlade.get());
       e.propTorque.set(e.jTorque.get());
+      if (this.turbine) {
+        e.n1.set(e.jN1.get());
+        e.n2.set(e.jN2.get());
+        e.augmentation.set(e.fcsThrottlePos.get() > 1.001 && e.running.getBool());
+      }
     }
 
     if (!this.n.simFuelFreeze.getBool()) {
@@ -363,12 +377,16 @@ export class FDMInterface {
       }
     }
 
+    // FGLGear::GetGearUnitPos(): once the FCS moves gear/gear-pos-norm, it
+    // drives every unit (gear/unit[n]/pos-norm is not updated then).
+    const fcsGearPos = this.n.gearPos.get();
+    if (fcsGearPos !== 1) this.useFcsGearPos = true;
     for (let i = 0; i < this.gearNodes.length; i++) {
       const g = this.gearNodes[i];
       const meta = this.gear[i];
       g.oWow.set(g.wow.get() !== 0);
       g.oRoll.set(g.wheel.get() * FT2M);
-      g.oPos.set(g.pos.get());
+      g.oPos.set(this.useFcsGearPos ? fcsGearPos : g.pos.get());
       const comp = g.comp.get();
       g.oCompNorm.set(comp / meta.maxCompressionFt);
       g.oCompM.set(comp * FT2M);

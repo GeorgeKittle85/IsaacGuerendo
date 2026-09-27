@@ -7,9 +7,14 @@ directories first, then FlightGear's shared Aircraft/Generic/JSBSim/Systems,
 just like FlightGear does), and writes them into one JSON bundle that the
 web app unpacks into JSBSim's virtual filesystem.
 
-Example:
+With --jsbsim instead of --fgdata, the aircraft comes from JSBSim's own
+source tree (aircraft/<name>/, engine/, systems/), as JSBSim itself loads it.
+
+Examples:
     python3 tools/build_fdm.py --fgdata /path/to/fgdata --aircraft c172p \
         --out site/data/fdm/c172p.json
+    python3 tools/build_fdm.py --jsbsim /path/to/jsbsim --aircraft f16 \
+        --out site/data/fdm/f16.json
 """
 
 import argparse
@@ -36,15 +41,25 @@ def find_file(name, search_dirs):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--fgdata", required=True, help="FlightGear data (FG_ROOT) directory")
+    src = ap.add_mutually_exclusive_group(required=True)
+    src.add_argument("--fgdata", help="FlightGear data (FG_ROOT) directory")
+    src.add_argument("--jsbsim", help="JSBSim source tree (with aircraft/, engine/, systems/)")
     ap.add_argument("--aircraft", default="c172p")
     ap.add_argument("--fdm", help="JSBSim model name (default: same as --aircraft)")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
     model = args.fdm or args.aircraft
-    acdir = os.path.join(args.fgdata, "Aircraft", args.aircraft)
-    generic_systems = os.path.join(args.fgdata, "Aircraft", "Generic", "JSBSim", "Systems")
+    if args.jsbsim:
+        root = args.jsbsim
+        acdir = os.path.join(root, "aircraft", args.aircraft)
+        shared_engines = os.path.join(root, "engine")
+        shared_systems = os.path.join(root, "systems")
+    else:
+        root = args.fgdata
+        acdir = os.path.join(root, "Aircraft", args.aircraft)
+        shared_engines = os.path.join(root, "Aircraft", "Generic", "JSBSim", "Engines")
+        shared_systems = os.path.join(root, "Aircraft", "Generic", "JSBSim", "Systems")
     main_xml = os.path.join(acdir, model + ".xml")
     if not os.path.isfile(main_xml):
         sys.exit(f"missing {main_xml}")
@@ -72,10 +87,10 @@ def main():
             if not ref:
                 continue
             if el.tag in ("engine", "thruster"):
-                dirs = [os.path.join(acdir, "Engines"), os.path.join(args.fgdata, "Aircraft", "Generic", "JSBSim", "Engines")]
+                dirs = [os.path.join(acdir, "Engines"), shared_engines]
                 vdirs = [f"aircraft/{args.aircraft}/Engines", "engine"]
             elif el.tag in ("system", "include") or el.tag.startswith("channel"):
-                dirs = [os.path.join(acdir, "Systems"), generic_systems, os.path.dirname(path)]
+                dirs = [os.path.join(acdir, "Systems"), shared_systems, os.path.dirname(path)]
                 vdirs = [f"aircraft/{args.aircraft}/Systems", "systems", None]
             else:
                 continue
@@ -86,7 +101,7 @@ def main():
                     found = (p, vd)
                     break
             if not found:
-                missing.append(f"{el.tag} file={ref} (from {os.path.relpath(path, args.fgdata)})")
+                missing.append(f"{el.tag} file={ref} (from {os.path.relpath(path, root)})")
                 continue
             p, vd = found
             ap_ = os.path.abspath(p)
