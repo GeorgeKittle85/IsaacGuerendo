@@ -5,7 +5,7 @@ import * as THREE from "three";
 import createJSBSim from "../wasm/jsbsim.mjs";
 import { JSBSim } from "./fdm/jsbsim.js";
 import { Simulation } from "./sim.js";
-import { RenderFrame, aircraftMatrix } from "./scene/geo.js";
+import { RenderFrame, aircraftMatrix, enuBasis } from "./scene/geo.js";
 import { SceneryManager } from "./scene/tiles.js";
 import { Sky, timeForSun } from "./scene/sky.js";
 import { AirportLights } from "./scene/lights.js";
@@ -19,6 +19,7 @@ import { ViewManager } from "./app/views.js";
 import { Input, HELP } from "./app/input.js";
 import { Hud } from "./app/hud.js";
 import { TouchControls } from "./app/touch.js";
+import { FighterHud } from "./app/fighterhud.js";
 import { Menu } from "./app/menu.js";
 import { createC172pNamespace } from "./aircraft/c172p-nasal.js";
 import { aircraftById } from "./aircraft/registry.js";
@@ -125,6 +126,8 @@ class App {
     window.addEventListener("keydown", unlock);
 
     this.hud = new Hud();
+    this.fighterHud = new FighterHud();
+    this.enu = { e: new THREE.Vector3(), n: new THREE.Vector3(), u: new THREE.Vector3() };
     this.controls = new Controls(this);
     this.views = new ViewManager({
       frame: this.frame,
@@ -384,6 +387,12 @@ class App {
     this.hud.message(on ? "Paused (p to resume)" : "Resumed");
   }
 
+  /** The F-16's head-up display ('H'). */
+  toggleFighterHud() {
+    if (this.def?.id !== "f16") return;
+    this.hud.message(this.fighterHud.toggle() ? "HUD on" : "HUD off", 1.2);
+  }
+
   toggleHelp(on) {
     const el = $("help");
     el.hidden = on === undefined ? !el.hidden : !on;
@@ -508,6 +517,16 @@ class App {
       info = this.views.update(dt, ac, this.camera);
     }
     this.model?.update(dt, this.camera);
+    if (this.def?.id === "f16" && this.views.view.type === "cockpit" && !this.debugCamera) {
+      const b = enuBasis(ac.lat, ac.lon);
+      const f = this.frame;
+      f.dirToRender(b.e, this.enu.e);
+      f.dirToRender(b.n, this.enu.n);
+      f.dirToRender(b.u, this.enu.u);
+      this.fighterHud.draw(this.camera, this.aircraftGroup.matrix, this.enu, this.sim.props);
+    } else {
+      this.fighterHud.clear();
+    }
     this.objects.update(dt, this.camera, this.scenery, ac.lat, ac.lon);
     const listener = this.views.view.type === "cockpit" && !this.debugCamera ? 0
       : this.camera.position.distanceTo(this.tmpPos.setFromMatrixPosition(this.aircraftGroup.matrix));

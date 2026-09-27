@@ -32,6 +32,7 @@ export const HELP = [
     ["g G", "Gear up / down"],
     ["k K / Ctrl+B", "Speed brake in / out / toggle"],
     ["c", "Canopy (on the ground)"],
+    ["H", "Head-up display on / off"],
   ]],
   ["Ground", [
     ["b", "Brakes (hold)"],
@@ -196,6 +197,7 @@ export class Input {
       case "k": if (!e.repeat) c.speedbrake(-1); return true;
       case "K": if (!e.repeat) c.speedbrake(1); return true;
       case "c": if (!e.repeat) c.toggleCanopy(); return true;
+      case "H": if (!e.repeat && app.def?.id === "f16") { app.toggleFighterHud(); return true; } return false;
       case "v": if (!e.repeat) app.stepView(1); return true;
       case "V": if (!e.repeat) app.stepView(-1); return true;
       case "x": app.zoom(-1); return true;
