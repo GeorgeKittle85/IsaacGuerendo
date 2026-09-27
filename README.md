@@ -2,8 +2,8 @@
 
 FlightGear's flight simulation running in a web browser. The JSBSim flight
 dynamics engine, FlightGear's default flight model, is compiled to
-WebAssembly. It flies FlightGear's Cessna 172P over FlightGear's own San
-Francisco Bay Area scenery, rendered with three.js.
+WebAssembly. It flies FlightGear's Cessna 172P, or an F-16 Fighting Falcon,
+over FlightGear's own San Francisco Bay Area scenery, rendered with three.js.
 
 The whole thing is a static website with no server-side code. It can be
 hosted on GitHub Pages or any web server.
@@ -31,6 +31,15 @@ hosted on GitHub Pages or any web server.
     Nasal-to-JavaScript translator.
   - FlightGear's procedural lights (nav, strobe, beacon, cabin) are drawn
     with a port of its light shader.
+- **F-16 Fighting Falcon.** Pick it in the start menu.
+  - JSBSim's own F-16 flight model: fly-by-wire flight controls, automatic
+    flaperons and leading edge flaps, and an F100-PW-229 turbofan with
+    afterburner. The engine starts like a jet: the starter spins it up, and
+    the fuel comes on at 20% N2.
+  - A 3D model converted from Blender to glTF. Its own animations drive the
+    gear retraction, flaperons, stabilators, rudder, speed brakes, leading
+    edge flaps and canopy. The wheels turn, and an afterburner plume lights up.
+  - Engine, afterburner, gear and wind sounds recorded for FlightGear's F-16.
 - **Scenery.** FlightGear World Scenery 2.0 for 37–38°N, 121–123°W, with
   FlightGear's regional materials.
   - Runways and markings, plus runway, taxiway and approach lighting
@@ -63,11 +72,12 @@ WebAssembly and module loading from `file://` URLs.
 URL parameters skip the start menu, for example:
 
 ```
-?autostart&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@10&vis=35000&range=25
+?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@10&vis=35000&range=25
 ```
 
 | Parameter | Values |
 | --- | --- |
+| `aircraft` | `c172p` (default), `f16` |
 | `position` | `runway`, `cold` (runway, engine off), `final` (3 nm final), `air` (3000 ft above the airport) |
 | `time` | `morning`, `noon`, `afternoon`, `dusk`, `evening`, `midnight`, `now` |
 | `wind` | direction the wind blows from @ speed in knots |
@@ -82,8 +92,8 @@ enable it, go to the repository's **Settings → Pages** and set **Source** to
 
 ## Flying
 
-The start menu picks the airport, runway, time of day and weather. On a
-runway start the parking brake is set: press **B** to release it, then
+The start menu picks the aircraft, airport, runway, time of day and weather.
+On a runway start the parking brake is set: press **B** to release it, then
 **Page Up** to add power. Press **?** in the simulator for the full list of
 keys.
 
@@ -100,17 +110,30 @@ keys.
 | Tab | Mouse controls the yoke |
 | `p`, `a`/`A` | Pause, speed up / slow down |
 
+In the F-16, the top half of the throttle is the afterburner (the flight
+data strip shows **AB**), and the flaps are automatic:
+
+| Keys | Action |
+| --- | --- |
+| `g`, `G` | Gear up, gear down (not with weight on the wheels) |
+| `k`, `K`, Ctrl+B | Speed brake in, out, toggle |
+| `c` | Canopy (on the ground) |
+| Shift+S | Engine start |
+
+On touch screens the F-16 gets **Gear** and **Spd brk** buttons instead of
+the flap buttons.
+
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
 | `site/` | The website: `index.html`, `css/`, `js/`, `wasm/` (JSBSim build), `data/` (converted FlightGear data), `vendor/` (three.js) |
-| `site/js/fdm`, `props`, `systems`, `instruments`, `aircraft`, `nasal` | The simulation: JSBSim interface, property tree, property rules, instruments, c172p systems, Nasal translator |
-| `site/js/scene`, `model` | Rendering: geodesy, scenery tiles and materials, sky, lights, scenery objects, AC3D and FlightGear model loading |
+| `site/js/fdm`, `props`, `systems`, `instruments`, `aircraft`, `nasal` | The simulation: JSBSim interface, property tree, property rules, instruments, c172p and F-16 systems, the aircraft list, Nasal translator |
+| `site/js/scene`, `model` | Rendering: geodesy, scenery tiles and materials, sky, lights, scenery objects, AC3D and FlightGear model loading, glTF aircraft models |
 | `site/js/sound` | Aircraft sound (SimGear's XML sound system on Web Audio) |
 | `site/js/app` | User interface: controls, input, touch controls, views, menu, flight data strip |
 | `wasm/` | JSBSim WebAssembly build script, C++ bridge and patch |
-| `tools/` | Data conversion pipeline and tests |
+| `tools/` | Data conversion pipeline and tests (`tools/f16/`: the F-16's sound configuration) |
 
 ## Rebuilding the data
 
@@ -135,6 +158,20 @@ models, checked against TerraSync's SHA-1 indexes) and converts:
 - the scenery: tiles, airports and objects
 - the star catalogue
 
+The F-16 comes from other sources: JSBSim's F-16 flight model, sounds from
+FlightGear's F-16 in FGAddon, and the Blender model `F-16_EXP_animated.blend`.
+`tools/build_f16.sh` downloads the first two and converts all three. It needs
+Blender 4.x, or Python 3.11 with `pip install bpy==4.2.*`:
+
+```sh
+tools/build_f16.sh path/to/F-16_EXP_animated.blend
+# or, with the bpy module: BLENDER_PYTHON=/path/to/python3.11 tools/build_f16.sh ...
+```
+
+The .blend file points to texture images in an `F-16 EXP.fbm` folder that
+is not part of it. If that folder is next to the .blend, the textures are
+converted as well; without it, the model is painted in F-16 greys.
+
 To rebuild the flight model itself, install the
 [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html)
 and run:
@@ -148,12 +185,14 @@ wasm/build.sh build/wasm
 
 ```sh
 npm test                  # flight model smoke test + Nasal translator tests (Node only)
-npm install && npm run test:e2e -- --chromium /path/to/chrome
+npm install && npm run test:e2e -- --chromium /path/to/chrome [--aircraft f16]
 ```
 
-The smoke test flies a takeoff with the WebAssembly JSBSim and the c172p
-systems, and checks the climb. The end-to-end test loads the site in
-headless Chromium, takes off from San Francisco and saves screenshots.
+The smoke test flies takeoffs with the WebAssembly JSBSim, first the c172p
+and then the F-16 (with the gear coming up), checks the climbs, and starts
+the F-16's engine from cold. The end-to-end test loads the site in headless
+Chromium, takes off from San Francisco in the chosen aircraft and saves
+screenshots.
 
 ## Credits and licenses
 
@@ -165,7 +204,12 @@ projects:
   models, star catalogue, and the simulator code the JavaScript here is
   ported from (GPL-2.0-or-later).
 - The Cessna 172P by the c172p team (GPL-2.0-or-later).
-- [JSBSim](https://github.com/JSBSim-Team/jsbsim) (LGPL-2.1-or-later).
+- [JSBSim](https://github.com/JSBSim-Team/jsbsim) (LGPL-2.1-or-later), and
+  its F-16 flight model by Erik Hofman (GPL).
+- Sounds from FlightGear's F-16
+  ([FGAddon](https://sourceforge.net/p/flightgear/fgaddon/), GPL-2.0-or-later).
+- The F-16 3D model `F-16_EXP_animated.blend`, supplied by the repository
+  owner.
 - [SimGear](https://gitlab.com/flightgear/simgear)'s magnetic variation
   model.
 - [three.js](https://threejs.org/) (MIT).

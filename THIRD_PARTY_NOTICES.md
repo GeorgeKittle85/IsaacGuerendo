@@ -58,10 +58,32 @@ JSBSim 1.3.1 is compiled to WebAssembly (`site/wasm/jsbsim.wasm`).
 `wasm/build.sh` downloads the sources and applies
 `wasm/patches/jsbsim-emscripten.patch`.
 
+JSBSim's F-16 flight model (`aircraft/f16`, with `engine/F100-PW-229.xml`
+and `engine/direct.xml`) by Erik Hofman is included in
+`site/data/fdm/f16.json`. Its files state the GNU General Public License.
+
+## FlightGear F-16 (FGAddon)
+
+- Sources: https://sourceforge.net/p/flightgear/fgaddon/ (`Aircraft/f16`)
+- License: GNU General Public License, version 2 or later
+- Copyright (C) 2023 Erik Hofman and the F-16's authors (see its
+  `authors.txt`); engine recordings by Carsten "GEED" Brueggmann
+
+Its sound recordings are included, resampled, in
+`site/data/aircraft/f16/sound`.
+
+## F-16 3D model
+
+`site/data/aircraft/f16/model/f16.glb` is converted from
+`F-16_EXP_animated.blend`, supplied by the repository owner.
+
 ## three.js
 
 - Website: https://threejs.org/
 - License: MIT (see `site/vendor/three.LICENSE`)
+
+`site/vendor/addons` holds three.js's glTF loader and the utilities it
+imports, from the same release (r186).
 
 ## Emscripten
 
