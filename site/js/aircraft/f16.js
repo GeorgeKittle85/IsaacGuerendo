@@ -13,7 +13,7 @@ export const F16_PROPS = {
   values: [
     // Pilot's eye point: x right, y up, z aft of the model origin (metres).
     ["/sim/view/config/x-offset-m", 0],
-    ["/sim/view/config/y-offset-m", 1.2],
+    ["/sim/view/config/y-offset-m", 1.24],
     ["/sim/view/config/z-offset-m", -4.15],
     ["/sim/view/config/pitch-offset-deg", -6],
     ["/sim/view/config/default-field-of-view-deg", 75],

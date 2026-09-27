@@ -123,6 +123,7 @@ try {
     const bad = await page.evaluate(() => [...window.__fg.model.bones.values()]
       .filter((b) => ![...b.quaternion.toArray(), ...b.position.toArray()].every(Number.isFinite)).map((b) => b.name));
     check(bad.length === 0, `model bones finite${bad.length ? ": " + bad.join(", ") : ""}`);
+    check(await page.evaluate(() => window.__fg.fighterHud.shown), "head-up display drawn in the cockpit view");
   }
   await page.evaluate(() => window.__fg.setView(2));
   await page.waitForTimeout(3000);

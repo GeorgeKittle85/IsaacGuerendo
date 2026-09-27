@@ -38,7 +38,11 @@ hosted on GitHub Pages or any web server.
     the fuel comes on at 20% N2.
   - A 3D model converted from Blender to glTF. Its own animations drive the
     gear retraction, flaperons, stabilators, rudder, speed brakes, leading
-    edge flaps and canopy. The wheels turn, and an afterburner plume lights up.
+    edge flaps and canopy. The wheels turn and ride up and down with the
+    struts' compression, and an afterburner plume lights up.
+  - A head-up display in the cockpit view: pitch ladder, flight path marker,
+    gun cross, airspeed, altitude, radar altitude, vertical speed, heading
+    tape, Mach, G and angle of attack.
   - Engine, afterburner, gear and wind sounds recorded for FlightGear's F-16.
 - **Scenery.** FlightGear World Scenery 2.0 for 37–38°N, 121–123°W, with
   FlightGear's regional materials.
@@ -118,6 +122,7 @@ data strip shows **AB**), and the flaps are automatic:
 | `g`, `G` | Gear up, gear down (not with weight on the wheels) |
 | `k`, `K`, Ctrl+B | Speed brake in, out, toggle |
 | `c` | Canopy (on the ground) |
+| `H` | Head-up display on / off |
 | Shift+S | Engine start |
 
 On touch screens the F-16 gets **Gear** and **Spd brk** buttons instead of
