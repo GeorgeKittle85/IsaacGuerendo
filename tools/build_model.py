@@ -133,7 +133,8 @@ class Builder:
         """Resolves an effect name the way SimGear's makeEffect() does (name +
         ".eff" in the model's directory, then FG_ROOT) and records its
         parameters and parent, following inherits-from.  Returns the key."""
-        name = name.strip()
+        # A leading slash ("/Effects/model-combined-deferred") still means FG_ROOT.
+        name = name.strip().lstrip("/")
         path = None
         for cand in [os.path.join(base_dir, name + ".eff")] + [os.path.join(r, name + ".eff") for r in self.roots]:
             if os.path.isfile(cand):

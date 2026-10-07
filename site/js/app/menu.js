@@ -2,6 +2,7 @@
 // weather.  The last choices are remembered in this browser (localStorage).
 
 import { AIRCRAFT, aircraftById } from "../aircraft/registry.js";
+import { activeRunway } from "../atc/groundnet.js";
 
 const $ = (id) => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -23,20 +24,7 @@ function save(sel) {
   }
 }
 
-/** The runway with the most headwind (FlightGear picks the active runway the same way). */
-export function activeRunway(airport, windFromDeg, windKt) {
-  let best = airport.runways[0];
-  let bestScore = -Infinity;
-  for (const r of airport.runways) {
-    const head = windKt * Math.cos(((windFromDeg - r.heading) * Math.PI) / 180);
-    const score = head * 1000 + r.lengthM / 10;
-    if (score > bestScore) {
-      bestScore = score;
-      best = r;
-    }
-  }
-  return best;
-}
+export { activeRunway };
 
 export class Menu {
   constructor(app, airports) {
@@ -46,7 +34,7 @@ export class Menu {
     this.form = $("menu-form");
     this.f = {
       airport: $("m-airport"), runway: $("m-runway"), position: $("m-position"), time: $("m-time"),
-      vis: $("m-vis"), windDir: $("m-wind-dir"), windKt: $("m-wind-kt"), range: $("m-range"),
+      vis: $("m-vis"), windDir: $("m-wind-dir"), windKt: $("m-wind-kt"), range: $("m-range"), gate: $("m-gate"),
     };
     this.buildAircraftPicker();
     for (const a of airports) {
@@ -69,7 +57,14 @@ export class Menu {
       if (saved.radiusKm) this.f.range.value = String(saved.radiusKm);
     }
     this.fillRunways(saved?.airport === this.f.airport.value ? saved.runway : null);
-    this.f.airport.addEventListener("change", () => this.fillRunways(null));
+    this.savedGate = saved?.airport === this.f.airport.value ? saved.gate : null;
+    this.fillGates();
+    this.f.airport.addEventListener("change", () => {
+      this.fillRunways(null);
+      this.fillGates();
+    });
+    this.f.position.addEventListener("change", () => this.showGates());
+    this.f.gate.addEventListener("change", () => { this.savedGate = this.f.gate.value; });
     for (const k of ["windDir", "windKt"]) {
       this.f[k].addEventListener("change", () => {
         if (!this.runwayTouched) this.fillRunways(null);
@@ -96,7 +91,10 @@ export class Menu {
       input.type = "radio";
       input.name = "aircraft";
       input.value = a.id;
-      input.addEventListener("change", () => { this.aircraft = a.id; });
+      input.addEventListener("change", () => {
+        this.aircraft = a.id;
+        this.fillGates();
+      });
       const svg = document.createElementNS(SVG_NS, "svg");
       svg.setAttribute("viewBox", "0 0 64 64");
       svg.setAttribute("aria-hidden", "true");
@@ -148,11 +146,68 @@ export class Menu {
     this.runwayTouched = !!preferred;
   }
 
+  get gateStart() {
+    return this.f.position.value.startsWith("gate");
+  }
+
+  showGates() {
+    $("m-gate-row").hidden = !this.gateStart;
+  }
+
+  /**
+   * The airport's parking positions that fit the aircraft (its ground
+   * network, atc/groundnet.js), grouped by kind, the kind it would use first.
+   */
+  async fillGates() {
+    this.showGates();
+    const icao = this.f.airport.value;
+    const def = aircraftById(this.aircraft);
+    const sel = this.f.gate;
+    const hint = $("m-gate-hint");
+    const net = await this.app.groundnet(icao);
+    if (icao !== this.f.airport.value || def.id !== this.aircraft) return; // changed meanwhile
+    sel.textContent = "";
+    const spots = net?.parkingFor(def.wingspanM) ?? [];
+    const gateOpts = [...this.f.position.options].filter((o) => o.value.startsWith("gate"));
+    for (const o of gateOpts) o.disabled = !spots.length;
+    if (!spots.length) {
+      hint.textContent = net ? `No parking spot at ${icao} fits the ${def.short}.` : `${icao} has no gates in FlightGear's data.`;
+      if (this.gateStart) this.f.position.value = "runway";
+      this.showGates();
+      return;
+    }
+    hint.textContent = net.hasTaxiways ? "" : "No taxiway data here: ATC gives no taxi route.";
+    const groups = [["gate", "Gates"], ["cargo", "Cargo"], ["ga", "General aviation"], ["tie-down", "Tie-downs"],
+      ["tie_down", "Tie-downs"], ["hangar", "Hangars"], ["mil-fighter", "Military"], ["mil-cargo", "Military"]];
+    const label = new Map(groups);
+    const byGroup = new Map();
+    for (const p of spots) {
+      const g = label.get(p.type) ?? "Other";
+      if (!byGroup.has(g)) byGroup.set(g, []);
+      byGroup.get(g).push(p);
+    }
+    for (const [g, list] of byGroup) {
+      const og = document.createElement("optgroup");
+      og.label = g;
+      for (const p of list.sort((a, b) => a.name.localeCompare(b.name, "en", { numeric: true }))) {
+        const o = document.createElement("option");
+        o.value = p.name;
+        o.textContent = p.name;
+        og.append(o);
+      }
+      sel.append(og);
+    }
+    const prefer = def.id === "747" ? ["gate", "cargo"] : def.id === "f16" ? ["mil-fighter", "ga", "cargo", "gate"] : ["ga", "tie-down", "tie_down", "gate"];
+    const first = prefer.map((t) => spots.find((p) => p.type === t)).find(Boolean) ?? spots[0];
+    sel.value = this.savedGate && spots.some((p) => p.name === this.savedGate) ? this.savedGate : first.name;
+  }
+
   selection() {
     return {
       aircraft: this.aircraft,
       airport: this.f.airport.value,
       runway: this.f.runway.value,
+      gate: this.f.gate.value || null,
       position: this.f.position.value,
       time: this.f.time.value,
       visibilityM: +this.f.vis.value,
@@ -162,7 +217,7 @@ export class Menu {
     };
   }
 
-  /** ?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25 */
+  /** ?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25&gate=D55 */
   readParams(params) {
     const sel = this.selection();
     if (params.get("aircraft")) sel.aircraft = aircraftById(params.get("aircraft").toLowerCase()).id;
@@ -175,7 +230,8 @@ export class Menu {
       sel.windKt = +wind[2];
     }
     sel.runway = params.get("runway")?.toUpperCase() ?? activeRunway(apt, sel.windDir, sel.windKt).id;
-    for (const k of ["position", "time"]) if (params.get(k)) sel[k] = params.get(k);
+    for (const k of ["position", "time", "gate"]) if (params.get(k)) sel[k] = params.get(k);
+    if (params.get("gate") && !params.get("position")) sel.position = "gate";
     if (params.get("vis")) sel.visibilityM = +params.get("vis");
     if (params.get("range")) sel.radiusKm = +params.get("range");
     return sel;

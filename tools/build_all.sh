@@ -30,6 +30,7 @@ python3 tools/build_rules.py --fgdata "$FG" --aircraft c172p --out site/data/air
 python3 tools/build_scenery.py --fgdata "$FG" --terrasync "$TS" \
   $(for b in "${BUCKETS[@]}"; do echo --bucket "$b"; done) --out site/data/scenery
 python3 tools/build_airports.py --fgdata "$FG" --scenery site/data/scenery
+python3 tools/build_groundnets.py --scenery site/data/scenery --cache "$TS/groundnets"
 python3 tools/fetch_models.py --scenery site/data/scenery --fgdata "$FG" --dest "$TS"
 python3 tools/build_objects.py --fgdata "$FG" --terrasync "$TS" --scenery site/data/scenery \
   --out site/data/scenery/objects

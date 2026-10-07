@@ -1,9 +1,21 @@
 // The aircraft the start menu offers: where each one's data lives, its
 // systems code, its 3D model and its start-up numbers.
+//
+//   engines      throttles the pilot moves together (the 747's APU excluded)
+//   flaps        flap detents (/sim/flaps/setting) and their names, if not
+//                FlightGear's default of three equal steps
+//   wingspanM    picks parking spots big enough (a spot's radius is half the
+//                span it takes)
+//   noseGearM    nose wheel ahead of the reference point: it follows the taxi line
+//   tug          how a pushback tug moves it (ground/pushback.js): FlightGear's
+//                autopush interface, the c172p's own towbar, or JSBSim's
+//                generic pushback system
+//   callsign     on the radio, written and spoken
 
 import { C172P } from "./c172p.js";
 import { F16, F16_PROPS, F16_RULES } from "./f16.js";
 import { F16_MODEL } from "./f16-model.js";
+import { B744 } from "./b744.js";
 
 export const AIRCRAFT = [
   {
@@ -18,6 +30,11 @@ export const AIRCRAFT = [
     model: { type: "fg", url: "data/aircraft/c172p/model" },
     sound: "data/aircraft/c172p/sound",
     start: { finalKts: 70, finalFlaps: 1 / 3, airKts: 100 },
+    engines: 2,
+    wingspanM: 11,
+    noseGearM: 1.05,
+    tug: { type: "towbar", maxSteerDeg: 30, speedKmh: 4 },
+    callsign: { text: "N85KG", spoken: "Skyhawk eight five kilo golf", short: "Skyhawk eight five kilo golf" },
   },
   {
     id: "f16",
@@ -33,6 +50,36 @@ export const AIRCRAFT = [
     speedbrake: true,
     autoFlaps: true,
     start: { finalKts: 155, airKts: 300, airGearUp: true, throttle: 0.4 },
+    engines: 1,
+    wingspanM: 9.96,
+    noseGearM: 3.04,
+    // FlightGear's military tug, hitched at the nose wheel (JSBSim's NOSE_LG contact).
+    tug: { type: "pushback", maxSteerDeg: 80, speedKmh: 6,
+      model: { url: "data/models/pushback-military", offset: [-3.04, 0, -1.83], steer: "fcs/steer-pos-deg" } },
+    // Viper is the F-16's nickname; 85 is a certain 49ers tight end's number.
+    callsign: { text: "VIPER85", spoken: "Viper eight five", short: "Viper eight five" },
+  },
+  {
+    id: "747",
+    name: "Boeing 747-400",
+    short: "747-400",
+    blurb: "FlightGear's Queen of the Skies: four CF6 turbofans, flaps 1 to 30, up to 397 tonnes. Push back from a gate and taxi it with ATC.",
+    icon: "M32 2c1.6 0 2.6 2 2.6 5v14l7.4 5.4V23h3v5.6l5-3.6V22h3v5l7 5.2V36l-26-8.6V45l6.8 5.4V54L33 51l-1 3-1-3-8.8 3v-3.6L29 45V27.4L3 36v-3.8L10 27v-5h3v3l5 3.6V23h3v3.4L28.4 21V7c0-3 1-5 3.6-5z",
+    data: { fdm: "data/fdm/747-400.json", props: "data/aircraft/747-400/props.json", rules: "data/aircraft/747-400/rules.json" },
+    Systems: B744,
+    model: { type: "fg", url: "data/aircraft/747-400/model" },
+    sound: "data/aircraft/747-400/sound",
+    retractableGear: true,
+    speedbrake: "autospoilers",
+    reversers: true,
+    // 747-400-set.xml /sim/flaps: detents 0, 1, 5, 10, 20, 25 and 30.
+    flaps: { settings: [0, 0.033, 0.167, 0.333, 0.667, 0.833, 1], names: ["UP", "1", "5", "10", "20", "25", "30"] },
+    start: { finalKts: 150, finalFlaps: 0.833, airKts: 250, airGearUp: true, throttle: 0.6, takeoffFlaps: 0.667, runwayOffsetM: 50 },
+    engines: 4,
+    wingspanM: 64.4,
+    noseGearM: 22.05,
+    tug: { type: "autopush", speedKmh: 8 },
+    callsign: { text: "FTH85", spoken: "Faithful eight five heavy", short: "Faithful eight five heavy" },
   },
 ];
 

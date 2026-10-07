@@ -29,7 +29,8 @@ export class Simulation {
 
   /** Selects the aircraft for the next start(); the property tree is kept. */
   setAircraft(data, Aircraft) {
-    this.data = data;
+    // Aircraft classes may adjust their flight model's files (b744.js).
+    this.data = data && Aircraft?.patchFdm ? { ...data, fdm: Aircraft.patchFdm(data.fdm) } : data;
     this.Aircraft = Aircraft;
   }
 

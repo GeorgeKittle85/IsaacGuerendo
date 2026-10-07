@@ -15,6 +15,18 @@ Included or converted from FlightGear 2024.1:
 - The Cessna 172P aircraft (`Aircraft/c172p`) by the c172p team
   (https://github.com/c172p-team/c172p): flight model, systems, 3D model,
   textures and effects.
+- The Boeing 747-400 (`Aircraft/747-400`, the Aircraft-2024 package from the
+  FlightGear download mirrors) by Gijs de Rooy, Jonathan Redpath, Ivan
+  Ngeow, Markus Bulik, Alexander Barrett, Ron Jensen and the 747 team
+  (https://github.com/gijsrooy/747-400): flight model, property rules,
+  3D model, textures and sounds. Its `COPYING` is the GNU General Public
+  License, version 2.
+- The pushback tugs (`Models/Airport/Pushback`: the Goldhofer tug the 747
+  tows with, and the military tug used for the F-16), models and artwork
+  courtesy of the XPGoodWay team.
+- Airport ground networks from TerraSync (`Airports/*/*.groundnet.xml`):
+  parking positions, pushback routes and taxiways, by the FlightGear
+  scenery contributors.
 - Material definitions and textures (`Materials/`, `Textures/`).
 - The airport database (`Airports/apt.dat.gz`).
 - The star catalogue (`Astro/stars.gz`, from the Yale Bright Star Catalogue).
@@ -29,8 +41,23 @@ Included or converted from FlightGear 2024.1:
   - input bindings and commands
   - the view system
   - the c172p's Nasal scripts
+  - the 747-400's Nasal hydraulics and autostart (`744_hyd.nas`, `system.nas`)
   - `Nasal/controls.nas`
+  - Autopush, the pushback tug (`Nasal/Autopush/autopush.nas` and
+    `driver.nas`, Copyright (c) 2018 Michael Danilov, Joshua Davidson and
+    Merspieler, GPL-2.0)
 - A port of the procedural light shader (`Shaders/light-ALS.*`).
+
+## X-Plane Scenery Gateway
+
+- Website: https://gateway.x-plane.com/
+- License: GNU General Public License, version 2 or later (the Gateway's
+  airport data, which FlightGear's `apt.dat` also comes from)
+
+Used by `tools/build_groundnets.py` (the scenery ids are in each
+`site/data/scenery/groundnets/*.json`): taxiway names for FlightGear's
+ground networks, and the ATC taxi routes and ramp starts of the airports
+TerraSync has no ground network for.
 
 ## SimGear
 

@@ -25,6 +25,9 @@ export class FDMInterface {
     this.useFcsGearPos = false;
     this.magvar = 0;
     this.terrain = null; // {query(latRad, lonRad) -> {elev, nE, nN, nU, material}}
+    // Nose wheel steering from a pushback tug instead of the rudder pedals
+    // (-1..1), or null.
+    this.steerOverride = null;
   }
 
   /**
@@ -279,7 +282,7 @@ export class FDMInterface {
     n.fcsDe.set(n.elevator.get());
     n.fcsPitchTrim.set(n.elevatorTrim.get());
     n.fcsDr.set(-n.rudder.get());
-    n.fcsDs.set(n.rudder.get());
+    n.fcsDs.set(this.steerOverride ?? n.rudder.get());
     n.fcsYawTrim.set(-n.rudderTrim.get());
     n.fcsDf.set(n.flaps.get());
     n.fcsDsb.set(n.speedbrake.get());

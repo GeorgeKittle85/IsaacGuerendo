@@ -48,6 +48,9 @@ export class ViewManager {
       hGoal: null, fov: v.fov, distance: v.distance ?? 25, zoom: 1,
     }));
     this.cockpitEye = { x: -0.21, y: 0.273, z: 0.36, pitch: -12 };
+    // /sim/chase-distance-m: how far the outside views stand off (25 m by
+    // default, 90 m for the 747).
+    this.chaseDistance = 25;
     this.damped = null;
     this.flyby = null;
     this.tower = null;
@@ -86,6 +89,9 @@ export class ViewManager {
     VIEWS[0].fov = fov;
     this.state[0].fov = fov;
     this.state[0].pOff = this.cockpitEye.pitch;
+    const h = props.jsb.handle("/sim/chase-distance-m", false);
+    this.chaseDistance = Math.max(10, Math.abs(h >= 0 ? props.jsb.get(h) : 25) || 25);
+    VIEWS.forEach((v, i) => { if (v.type === "lookat") this.state[i].distance = this.chaseDistance; });
   }
 
   setView(i) {
@@ -107,7 +113,7 @@ export class ViewManager {
     s.hGoal = null;
     s.pOff = v.type === "cockpit" ? this.cockpitEye.pitch : 0;
     s.fov = v.fov;
-    s.distance = v.distance ?? 25;
+    s.distance = v.type === "lookat" ? this.chaseDistance : v.distance ?? 25;
     s.zoom = 1;
   }
 
@@ -223,7 +229,7 @@ export class ViewManager {
         }
         const ax = bodyAxes(h + s.hOff, p + s.pOff, r);
         const fwd = ned(ax.fwd), up = ned(ax.down).negate();
-        T.eye.copy(T.target).addScaledVector(fwd, -s.distance).addScaledVector(up, v.height);
+        T.eye.copy(T.target).addScaledVector(fwd, -s.distance).addScaledVector(up, (v.height * this.chaseDistance) / 25);
         T.up.copy(up);
       } else if (v.type === "tower") {
         this.towerTimer -= dt;
@@ -237,8 +243,9 @@ export class ViewManager {
         near = 1;
         // Keep the aircraft a sensible size on screen (zoom with x/X).
         const dist = T.eye.distanceTo(T.target);
-        // Frame about 30 m across at the aircraft (x/X zoom from there).
-        hfov = Math.max(0.3, Math.min(60, 2 * Math.atan((15 / s.zoom) / Math.max(1, dist)) * R2D));
+        // Frame a little more than the aircraft (30 m across for a light
+        // aircraft; x/X zoom from there).
+        hfov = Math.max(0.3, Math.min(60, 2 * Math.atan(((0.6 * this.chaseDistance) / s.zoom) / Math.max(1, dist)) * R2D));
       } else {
         // Fly-by: wait beside the flight path ahead of the aircraft, then jump
         // ahead again once it has gone by (Nasal view.nas flyby).
