@@ -62,7 +62,7 @@ const BREAKERS = ["master", "flaps", "pitot-heat", "instr", "intlt", "navlt", "l
 const THROTTLE_RATE = 0.33; // controls.nas
 
 /** aircraft.light: flashes <node>/state following a [on, off, ...] pattern. */
-class Flasher {
+export class Flasher {
   constructor(props, node, pattern) {
     this.props = props;
     this.node = node;

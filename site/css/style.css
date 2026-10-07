@@ -397,9 +397,11 @@ body.muted #btn-sound { text-decoration: line-through; opacity: 0.7; }
   letter-spacing: 0;
 }
 
-/* Flight data cells and touch buttons that belong to one aircraft only. */
-body[data-aircraft="c172p"] [data-only="f16"],
-body[data-aircraft="f16"] [data-only="c172p"] { display: none !important; }
+/* Flight data cells and touch buttons that belong to some aircraft only
+   (data-only lists them, separated by spaces). */
+body[data-aircraft="c172p"] [data-only]:not([data-only~="c172p"]),
+body[data-aircraft="f16"] [data-only]:not([data-only~="f16"]),
+body[data-aircraft="747"] [data-only]:not([data-only~="747"]) { display: none !important; }
 
 #menu footer {
   display: flex;
@@ -589,3 +591,133 @@ body.touch #hud {
 }
 
 body.touch #messages { top: max(96px, calc(env(safe-area-inset-top) + 88px)); }
+
+/* ------------------------------------------------------- radio and ATC */
+
+#menu .hint { font-size: 12px; color: var(--muted); }
+
+#atc {
+  position: fixed;
+  left: max(10px, env(safe-area-inset-left));
+  top: max(10px, env(safe-area-inset-top));
+  width: min(380px, calc(100vw - 20px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 5;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+body:not(.flying) #atc { display: none; }
+
+#atc > * { pointer-events: auto; }
+
+#atc header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  background: rgba(10, 14, 22, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 4px 3px 12px;
+}
+
+#atc .freq { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+#atc .freq:empty { display: none; }
+#atc header button { padding: 3px 12px; font-size: 12px; font-weight: 600; }
+
+#atc-guide {
+  background: rgba(8, 40, 22, 0.82);
+  border: 1px solid rgba(70, 240, 140, 0.55);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+
+#atc-guide.hold { background: rgba(60, 10, 10, 0.85); border-color: rgba(255, 70, 70, 0.7); }
+#atc-guide .next { display: flex; justify-content: space-between; gap: 12px; font-size: 16px; font-weight: 600; color: #fff; }
+#atc-guide .dist { font-family: var(--mono); color: #b8f5cf; white-space: nowrap; }
+#atc-guide.hold .dist { color: #ffc0c0; }
+#atc-guide .summary { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+#atc-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#atc-log li {
+  background: rgba(10, 14, 22, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  transition: opacity 1s;
+}
+
+#atc-log li.old { opacity: 0.45; }
+#atc-log li b { color: var(--accent-2); font-weight: 600; }
+#atc-log li.pilot { color: var(--muted); font-style: italic; }
+#atc-log li.pilot b { color: var(--muted); }
+#atc-log li.crew b { color: var(--warn); }
+
+#atc-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+}
+
+#atc-menu[hidden] { display: none; }
+#atc-menu .title { font-size: 11px; color: var(--muted); letter-spacing: 0.04em; padding: 0 4px 2px; }
+#atc-menu button { text-align: left; border-radius: 8px; padding: 6px 10px; }
+#atc-menu kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+/* Pop-up messages make way for the radio panel: above the flight data
+   strip when the window is too narrow for both at the top. */
+#messages { width: min(92vw, 560px); }
+
+@media (max-width: 1250px) {
+  body.flying:not(.touch) #messages {
+    top: auto;
+    bottom: calc(max(10px, env(safe-area-inset-bottom)) + 92px);
+    flex-direction: column-reverse;
+  }
+}
+
+/* Touch screens: the flight data is top left, so the radio goes right. */
+body.touch #atc {
+  left: auto;
+  right: max(10px, env(safe-area-inset-right));
+  top: max(52px, calc(env(safe-area-inset-top) + 44px));
+  width: min(300px, 46vw);
+  font-size: 12px;
+}
+
+body.touch #atc header { align-self: flex-end; }
+body.touch #atc-log li:not(:last-child) { display: none; }
+
+@media (max-width: 640px) {
+  #atc-log li:not(:last-child) { display: none; }
+}

@@ -21,6 +21,10 @@ import { Hud } from "./app/hud.js";
 import { TouchControls } from "./app/touch.js";
 import { FighterHud } from "./app/fighterhud.js";
 import { Menu } from "./app/menu.js";
+import { Radio } from "./app/radio.js";
+import { GroundNet } from "./atc/groundnet.js";
+import { ATC } from "./atc/atc.js";
+import { TaxiRouteView } from "./atc/taxiroute.js";
 import { createC172pNamespace } from "./aircraft/c172p-nasal.js";
 import { aircraftById } from "./aircraft/registry.js";
 import { SoundSystem } from "./sound/fgsound.js";
@@ -73,6 +77,8 @@ class App {
     this.models = new Map(); // aircraft id -> loaded 3D model
     this.sounds = new Map(); // aircraft id -> SoundSystem
     this.aircraftData = new Map(); // aircraft id -> Promise of {fdm, props, rules}
+    this.groundnets = new Map(); // ICAO -> Promise of GroundNet or null
+    this.tugModels = new Map(); // model URL -> loaded pushback tug model
     this.time = 0;
     this.sceneryTimer = 0;
     this.crashNotified = false;
@@ -81,12 +87,14 @@ class App {
 
   async boot() {
     setLoading("Loading the JSBSim flight model (WebAssembly)…", 0.05);
-    const [jsb, airports] = await Promise.all([
+    const [jsb, airports, groundnets] = await Promise.all([
       JSBSim.load(createJSBSim),
       fetchJson("data/scenery/airports.json"),
+      fetchJson("data/scenery/groundnets/index.json").catch(() => ({})),
     ]);
     this.jsb = jsb;
     this.airports = airports.airports;
+    this.groundnetIndex = groundnets;
     // The aircraft is chosen in the start menu; see start().
     this.sim = new Simulation(jsb, null);
     setLoading("Preparing the renderer…", 0.15);
@@ -146,6 +154,10 @@ class App {
     this.resize();
     this.bindToolbar();
 
+    this.radio = new Radio(this);
+    this.atc = new ATC(this);
+    this.routeView = new TaxiRouteView(this.scene, this.frame, (lat, lon) => this.scenery.elevation(lat, lon),
+      () => (this.sim.startCfg?.airport?.elevationFt ?? 0) * FT);
     this.menu = new Menu(this, this.airports);
     hideLoading();
     requestAnimationFrame((t) => this.loop(t));
@@ -200,8 +212,23 @@ class App {
 
   // ------------------------------------------------------------ start
 
-  /** Resolves a menu selection into a Simulation start configuration. */
-  startConfig(sel) {
+  /** An airport's ground network (gates, taxiways; atc/groundnet.js), fetched once; null if it has none. */
+  groundnet(icao) {
+    if (!this.groundnets.has(icao)) {
+      const apt = this.airports.find((a) => a.icao === icao);
+      const p = apt && this.groundnetIndex?.[icao]
+        ? fetchJson(`data/scenery/groundnets/${icao}.json`).then((d) => new GroundNet(d, apt)).catch((err) => {
+          console.warn("ground network", icao, err.message);
+          return null;
+        })
+        : Promise.resolve(null);
+      this.groundnets.set(icao, p);
+    }
+    return this.groundnets.get(icao);
+  }
+
+  /** Resolves a menu selection (and the airport's ground network) into a Simulation start configuration. */
+  startConfig(sel, net = null) {
     const ac = aircraftById(sel.aircraft).start;
     const apt = this.airports.find((a) => a.icao === sel.airport) ?? this.airports[0];
     const rwy = apt.runways.find((r) => r.id === sel.runway) ?? apt.runways[0];
@@ -218,9 +245,18 @@ class App {
     } else if (sel.position === "air") {
       cfg = { lat: rwy.lat, lon: rwy.lon, headingDeg: rwy.heading, onGround: false, running: true,
         altitudeFt: elevFt + 3000, speedKts: ac.airKts, throttle: ac.throttle, gearDown: !ac.airGearUp };
+    } else if (sel.position?.startsWith("gate") && net?.parking.length) {
+      // FlightGear puts the aircraft's reference point on the parking position.
+      const def = aircraftById(sel.aircraft);
+      const spots = net.parkingFor(def.wingspanM);
+      const park = spots.find((p) => p.name === sel.gate) ?? spots[0] ?? net.parking[0];
+      cfg = { lat: park.lat, lon: park.lon, headingDeg: park.heading, onGround: true, running: sel.position === "gate",
+        parking: park };
     } else {
-      const p = offsetLatLon(rwy.lat, rwy.lon, rwy.heading, 15);
-      cfg = { lat: p.lat, lon: p.lon, headingDeg: rwy.heading, onGround: true, running: sel.position !== "cold" };
+      // /sim/airport/runways/start-offset-m: the 747 needs room for its tail.
+      const p = offsetLatLon(rwy.lat, rwy.lon, rwy.heading, ac.runwayOffsetM ?? 15);
+      cfg = { lat: p.lat, lon: p.lon, headingDeg: rwy.heading, onGround: true, running: sel.position !== "cold",
+        flaps: ac.takeoffFlaps };
     }
     const today = new Date();
     let utc;
@@ -285,6 +321,7 @@ class App {
       this.aircraftGroup.add(model.root);
       this.model = model;
     }
+    await this.useTug(def);
     let sound = this.sounds.get(def.id);
     if (!sound) {
       sound = new SoundSystem(def.sound);
@@ -299,13 +336,46 @@ class App {
     }
   }
 
+  /**
+   * A pushback tug model that is not part of the aircraft's own model (the
+   * F-16's: FlightGear's military tug), hitched at the nose gear.
+   */
+  async useTug(def) {
+    if (this.tug) this.aircraftGroup.remove(this.tug.holder);
+    this.tug = null;
+    const t = def.tug?.model;
+    if (!t) return;
+    let tug = this.tugModels.get(t.url);
+    if (!tug) {
+      const lib = await ModelLibrary.load(t.url, this.renderer);
+      const model = await loadModel(lib, lib.manifest.root, { props: this.sim.props, base: "/", nasal: this.nasal, commands: {} });
+      const holder = new THREE.Group();
+      holder.name = "pushback-tug";
+      holder.position.set(...t.offset);
+      holder.add(model.root);
+      tug = { model, holder, steer: t.steer };
+      this.tugModels.set(t.url, tug);
+    }
+    this.aircraftGroup.add(tug.holder);
+    this.tug = tug;
+  }
+
+  updateTug(dt) {
+    const tug = this.tug;
+    if (!tug) return;
+    // The towbar turns with the nose wheel.
+    tug.holder.rotation.z = -this.sim.props.get(tug.steer) * (Math.PI / 180);
+    tug.model.update(dt, this.camera);
+  }
+
   async start(sel) {
     try {
       this.flying = false;
       this.menu.close();
       const def = aircraftById(sel.aircraft);
       const aircraftData = this.loadAircraftData(def);
-      const cfg = this.startConfig(sel);
+      const net = await this.groundnet(sel.airport);
+      const cfg = this.startConfig(sel, net);
       this.startSel = sel;
       this.radiusKm = cfg.radiusKm;
       // Keep the render frame's origin near the aircraft for precision.
@@ -349,6 +419,8 @@ class App {
       this.views.configureCockpit(this.sim.props);
       if (!this.viewChosen) this.views.setView(0);
       this.views.reset();
+      this.radio.reset();
+      this.atc.begin({ ...cfg, position: sel.position }, net);
       this.sim.props.set("/sim/current-view/view-number", this.views.index);
       this.sim.props.set("/sim/current-view/internal", this.views.view.type === "cockpit");
       hideLoading();
@@ -358,10 +430,13 @@ class App {
       }
       this.flying = true;
       document.body.classList.add("flying");
-      const where = cfg.onGround ? `runway ${cfg.runway.id}` : sel.position === "final" ? `final approach, runway ${cfg.runway.id}` : "in the air";
+      const where = cfg.parking ? `${cfg.parking.type === "gate" ? "gate " : ""}${cfg.parking.name}`
+        : cfg.onGround ? `runway ${cfg.runway.id}` : sel.position === "final" ? `final approach, runway ${cfg.runway.id}` : "in the air";
       this.hud.message(`${def.short} · ${cfg.airport.name} (${cfg.airport.icao}), ${where}`, 4);
-      if (cfg.onGround && cfg.running) this.hud.message("Parking brake set: B releases it, Page Up adds power", 6);
+      if (cfg.parking) this.hud.message("Press ' to talk to ATC: request pushback, then taxi", 8);
+      else if (cfg.onGround && cfg.running) this.hud.message("Parking brake set: B releases it, Page Up adds power", 6);
       if (cfg.running && def.id === "f16") this.hud.message("Throttle above 50% is afterburner · g gear up, G gear down", 6);
+      if (cfg.running && def.id === "747" && cfg.onGround && !cfg.parking) this.hud.message("Flaps 20 set for takeoff · rotate at 150 kt · g gear up", 6);
       if (!cfg.running) this.hud.message("Engine off: Shift+S runs the autostart", 6);
       // Handle for the browser tests and for poking around in the console.
       window.__fg = this;
@@ -435,8 +510,13 @@ class App {
     this.hud.message(`Visibility: ${(v / 1000).toFixed(1)} km`, 1);
   }
 
-  message(text) {
-    this.hud.message(text);
+  message(text, seconds) {
+    this.hud.message(text, seconds);
+  }
+
+  /** The ATC menu (' key, as in FlightGear). */
+  toggleAtc() {
+    if (this.flying) this.radio.toggleMenu();
   }
 
   // ------------------------------------------------------------ loop
@@ -469,6 +549,7 @@ class App {
     this.touch.update(dt);
     this.onFrame?.(dt); // test hook (tools/e2e)
     const running = !this.paused && !this.menu.isOpen;
+    this.atc.update(running && !this.sim.fdm.crashed ? Math.min(dt, 0.25) * this.speedUp : 0);
     this.sim.fdm.setGroundMaterial(this.scenery.lastMaterial);
     this.sim.update(dt, { paused: !running, speedUp: this.speedUp });
     if (running) this.nasal.update(dt * this.speedUp);
@@ -517,6 +598,8 @@ class App {
       info = this.views.update(dt, ac, this.camera);
     }
     this.model?.update(dt, this.camera);
+    this.updateTug(dt);
+    this.routeView.update(dt);
     if (this.def?.id === "f16" && this.views.view.type === "cockpit" && !this.debugCamera) {
       const b = enuBasis(ac.lat, ac.lon);
       const f = this.frame;
@@ -534,7 +617,7 @@ class App {
     this.sky.update(this.frame, this.camera, this.sim.date);
     this.lights.update(this.time);
     sceneryUniforms.time.value = this.time;
-    this.hud.update(dt, this.sim.props, { view: info.name, aircraft: this.def?.id });
+    this.hud.update(dt, this.sim.props, { view: info.name, aircraft: this.def?.id, flaps: this.controls.flapName() });
     this.renderer.render(this.scene, this.camera);
   }
 

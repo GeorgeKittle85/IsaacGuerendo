@@ -2,9 +2,13 @@
 // on KSFO runway 28R, flies a takeoff through the page's test hook and checks
 // the climb, then saves screenshots of the cockpit and chase views.
 //
+// With --gate, it starts at that KSFO gate instead and works the ground
+// side: the ATC menu (' key), a pushback by the tug, and Ground's taxi
+// clearance with the route drawn on the ground.
+//
 // Usage:
 //   npm install            (playwright-core)
-//   node tools/e2e_test.mjs [--aircraft c172p|f16] [--out build/e2e] [--chromium /path/to/chrome]
+//   node tools/e2e_test.mjs [--aircraft c172p|f16|747] [--gate D55] [--out build/e2e] [--chromium /path/to/chrome]
 //
 // Without a GPU, Chromium renders with SwiftShader: it is slow but works.
 
@@ -23,10 +27,13 @@ const arg = (name, def) => {
 const outDir = arg("--out", path.join(here, "../build/e2e"));
 const executablePath = arg("--chromium", process.env.CHROMIUM || undefined);
 const aircraft = arg("--aircraft", "c172p");
+const gate = arg("--gate", null);
 // Takeoff: rotate speed and climb attitude, and the climb speeds to expect.
 const TAKEOFF = {
-  c172p: { rotateKt: 55, pitch: 8, gain: 0.06, ias: [60, 100] },
-  f16: { rotateKt: 150, pitch: 12, gain: 0.08, ias: [150, 500], gearUp: true },
+  c172p: { rotateKt: 55, pitch: 8, gain: 0.06, ias: [60, 100], restAgl: 10 },
+  f16: { rotateKt: 150, pitch: 12, gain: 0.08, ias: [150, 500], gearUp: true, restAgl: 10 },
+  // The 747's reference point is mid-fuselage, 19 ft above the runway.
+  747: { rotateKt: 150, pitch: 10, gain: 0.1, ias: [140, 260], gearUp: true, restAgl: 25 },
 }[aircraft];
 if (!TAKEOFF) throw new Error(`unknown aircraft ${aircraft}`);
 mkdirSync(outDir, { recursive: true });
@@ -65,7 +72,57 @@ const check = (cond, msg) => {
   if (!cond) ok = false;
 };
 
-try {
+/** At a gate: ATC menu, pushback, taxi clearance. */
+async function gateScenario() {
+  const t0 = Date.now();
+  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=28R&position=gate&gate=${encodeURIComponent(gate)}&time=afternoon&wind=280@8&range=15`);
+  await page.waitForFunction(() => window.__fg?.flying === true, null, { timeout: 300000, polling: 500 });
+  check(true, `simulator running after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  const at = await page.evaluate(() => ({ phase: window.__fg.atc.phase, park: window.__fg.atc.parking?.name,
+    park0: window.__fg.sim.props.get("/controls/gear/brake-parking") }));
+  check(at.phase === "parked" && at.park === gate && at.park0 === 1, `parked at gate ${at.park}, parking brake set`);
+  await page.keyboard.press("'");
+  const menu = await page.evaluate(() => [...document.querySelectorAll("#atc-menu button")].map((b) => b.textContent));
+  check(/Request pushback/.test(menu[0] ?? ""), `ATC menu: ${menu.join(" | ")}`);
+  await page.keyboard.press("Digit1");
+  await page.waitForFunction(() => ["connected", "pushing"].includes(window.__fg.atc.pushback.state), null, { timeout: 120000, polling: 500 });
+  const start = await page.evaluate(() => [window.__fg.sim.props.get("/position/latitude-deg"), window.__fg.sim.props.get("/position/longitude-deg"), window.__fg.sim.props.get("/orientation/heading-deg")]);
+  await page.keyboard.press("B"); // release the parking brake: the tug pushes
+  await page.evaluate(() => { window.__fg.speedUp = 2; });
+  let moved = 0, back = false;
+  const t1 = Date.now();
+  while (Date.now() - t1 < 300000 && moved < 8) {
+    await page.waitForTimeout(3000);
+    const now = await page.evaluate(() => [window.__fg.sim.props.get("/position/latitude-deg"), window.__fg.sim.props.get("/position/longitude-deg")]);
+    const dn = (now[0] - start[0]) * 111195, de = (now[1] - start[1]) * 111195 * Math.cos((start[0] * Math.PI) / 180);
+    moved = Math.hypot(dn, de);
+    // Moving backwards: against the heading the aircraft started with.
+    back = dn * Math.cos((start[2] * Math.PI) / 180) + de * Math.sin((start[2] * Math.PI) / 180) < 0;
+  }
+  check(moved >= 8 && back, `the tug pushed the aircraft back ${moved.toFixed(1)} m`);
+  await page.evaluate(() => window.__fg.setView(1));
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: path.join(outDir, `${aircraft}-pushback.png`) });
+  // Stop the push where it is, set the brake, and ask for taxi.
+  await page.evaluate(() => window.__fg.atc.pushback.cancel());
+  await page.keyboard.press("B");
+  await page.waitForFunction(() => window.__fg.atc.phase === "ready", null, { timeout: 300000, polling: 1000 });
+  await page.keyboard.press("'");
+  await page.keyboard.press("Digit1");
+  await page.waitForFunction(() => document.getElementById("atc-next").textContent.length > 0, null, { timeout: 60000, polling: 500 });
+  const taxi = await page.evaluate(() => ({
+    phase: window.__fg.atc.phase, lines: window.__fg.routeView.group.children.length,
+    log: [...document.querySelectorAll("#atc-log li")].map((l) => l.textContent), next: document.getElementById("atc-next").textContent,
+  }));
+  const clr = taxi.log.find((l) => /taxi via/.test(l) && /Ground/.test(l));
+  check(taxi.phase === "taxi-out" && !!clr, `taxi clearance: ${clr}`);
+  check(taxi.lines > 0 && taxi.next.length > 0, `route drawn on the ground; guidance: ${taxi.next}`);
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: path.join(outDir, `${aircraft}-taxi-route.png`) });
+}
+
+/** On runway 28R: a takeoff and climb. */
+async function takeoffScenario() {
   const t0 = Date.now();
   await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=28R&time=afternoon&wind=280@8`);
   await page.waitForFunction(() => window.__fg?.flying === true, null, { timeout: 300000, polling: 500 });
@@ -74,7 +131,7 @@ try {
     const p = window.__fg.sim.props;
     return { agl: p.get("/position/altitude-agl-ft"), wow: p.getBool("/gear/gear[1]/wow"), park: p.get("/controls/gear/brake-parking") };
   });
-  check(start.wow && start.agl < 10, `on the runway (AGL ${start.agl.toFixed(1)} ft)`);
+  check(start.wow && start.agl < TAKEOFF.restAgl, `on the runway (AGL ${start.agl.toFixed(1)} ft)`);
   check(start.park === 1, "parking brake set at the start");
   check(await page.evaluate(() => window.__fg.def.id) === aircraft, `flying the ${aircraft}`);
   await page.screenshot({ path: path.join(outDir, `${aircraft}-cockpit-runway.png`) });
@@ -128,6 +185,11 @@ try {
   await page.evaluate(() => window.__fg.setView(2));
   await page.waitForTimeout(3000);
   await page.screenshot({ path: path.join(outDir, `${aircraft}-chase-climb.png`) });
+}
+
+try {
+  if (gate) await gateScenario();
+  else await takeoffScenario();
   check(errors.length === 0, `no page errors${errors.length ? ": " + errors.slice(0, 3).join(" | ") : ""}`);
 } catch (err) {
   check(false, err.message);

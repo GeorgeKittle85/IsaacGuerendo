@@ -41,11 +41,23 @@ export class Controls {
     for (const s of ["elevator", "aileron", "rudder"]) this.p.set(`/controls/flight/${s}-trim`, 0);
   }
 
-  /** Hard-coded flaps movement in 3 equal steps (the c172p has 0/10/20/30°). */
+  /**
+   * controls.flapsDown(): one detent of /sim/flaps/setting at a time (the
+   * 747's 0, 1, 5, 10, 20, 25, 30), or FlightGear's hard-coded three equal
+   * steps without one (the c172p's 0/10/20/30°).
+   */
   flapsDown(step) {
     if (!step) return;
-    if (this.app.def?.autoFlaps) {
+    const def = this.app.def;
+    if (def?.autoFlaps) {
       this.app.message?.("The F-16's flaps are automatic (flaperons and leading edge flaps)");
+      return;
+    }
+    if (def?.flaps) {
+      const s = def.flaps.settings;
+      const i = clamp(this.flapDetent() + Math.sign(step), 0, s.length - 1);
+      this.p.set("/controls/flight/flaps", s[i]);
+      this.app.message?.(`Flaps ${def.flaps.names[i]}`);
       return;
     }
     const v = clamp(0.3333334 * step + this.p.get("/controls/flight/flaps"), 0, 1);
@@ -53,12 +65,24 @@ export class Controls {
     this.app.message?.(`Flaps ${Math.round(v * 3) * 10}°`);
   }
 
+  /** The detent of /sim/flaps/setting nearest the flap lever. */
+  flapDetent() {
+    const s = this.app.def.flaps.settings;
+    const cur = this.p.get("/controls/flight/flaps");
+    return s.reduce((best, v, k) => (Math.abs(v - cur) < Math.abs(s[best] - cur) ? k : best), 0);
+  }
+
+  /** The flap detent's name for the flight data strip ("20"), or null. */
+  flapName() {
+    return this.app.def?.flaps ? this.app.def.flaps.names[this.flapDetent()] : null;
+  }
+
   /** controls.gearDown(): the gear does not come up with weight on the wheels. */
   gearDown(v) {
     if (!this.app.def?.retractableGear) return;
     const p = this.p;
     if (v < 0) {
-      if ([0, 1, 2].some((i) => p.getBool(`/gear/gear[${i}]/wow`))) {
+      if ([0, 1, 2, 3, 4].some((i) => p.getBool(`/gear/gear[${i}]/wow`))) {
         this.app.message?.("Gear: weight on wheels, staying down");
         return;
       }
@@ -74,12 +98,31 @@ export class Controls {
     this.gearDown(this.p.getBool("/controls/gear/gear-down") ? -1 : 1);
   }
 
-  /** Speed brake: FlightGear's k/K steps and Ctrl+B toggle.  The F-16's opens fully or not at all. */
+  /**
+   * Speed brake: FlightGear's k/K steps and Ctrl+B toggle.  The F-16's opens
+   * fully or not at all; the 747's lever has four positions (its Ctrl+B
+   * binding cycles /autopilot/autospoilers/step: down, armed, flight
+   * detent, up).
+   */
   speedbrake(v) {
-    if (!this.app.def?.speedbrake) return;
+    const mode = this.app.def?.speedbrake;
+    if (!mode) return;
+    if (mode === "autospoilers") {
+      const cur = this.p.get("/autopilot/autospoilers/step");
+      const step = v === undefined ? (cur + 1) % 4 : clamp(cur + Math.sign(v), 0, 3);
+      this.p.set("/autopilot/autospoilers/step", step);
+      this.app.message?.(`Speedbrake lever: ${["DOWN", "ARMED", "FLIGHT DETENT", "UP"][step]}`);
+      return;
+    }
     const on = v === undefined ? this.p.get("/controls/flight/speedbrake") < 0.5 : v > 0;
     this.p.set("/controls/flight/speedbrake", on ? 1 : 0);
     this.app.message?.(`Speed brake ${on ? "out" : "in"}`);
+  }
+
+  /** Delete: thrust reversers (747). */
+  toggleReversers() {
+    const msg = this.app.aircraft?.toggleReversers?.();
+    if (msg) this.app.message?.(msg);
   }
 
   toggleCanopy() {
@@ -88,14 +131,19 @@ export class Controls {
   }
 
   // ------------------------------------------------------------- engine
+  /** Throttles moved together (FlightGear's selected engines). */
+  get throttles() {
+    return this.app.def?.engines ?? 2;
+  }
+
   incThrottle(d) {
     let v = 0;
-    for (let i = 0; i < 2; i++) v = this.adjust(`/controls/engines/engine[${i}]/throttle`, d, 0, 1);
+    for (let i = 0; i < this.throttles; i++) v = this.adjust(`/controls/engines/engine[${i}]/throttle`, d, 0, 1);
     return v;
   }
 
   setThrottle(v) {
-    for (let i = 0; i < 2; i++) this.p.set(`/controls/engines/engine[${i}]/throttle`, clamp(v, 0, 1));
+    for (let i = 0; i < this.throttles; i++) this.p.set(`/controls/engines/engine[${i}]/throttle`, clamp(v, 0, 1));
   }
 
   /** controls.adjMixture (c172p override): speed * THROTTLE_RATE * frame time. */

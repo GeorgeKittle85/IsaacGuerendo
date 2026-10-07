@@ -34,10 +34,22 @@ export const HELP = [
     ["c", "Canopy (on the ground)"],
     ["H", "Head-up display on / off"],
   ]],
+  ["747-400", [
+    ["[ ]", "Flaps: UP, 1, 5, 10, 20, 25, 30"],
+    ["g G", "Gear up / down"],
+    ["Ctrl+B / k K", "Speedbrake lever: down, armed, flight detent, up"],
+    ["Delete", "Thrust reversers (on the ground, at idle)"],
+    ["Shift+S", "Autostart: APU and engines 1-4"],
+  ]],
   ["Ground", [
     ["b", "Brakes (hold)"],
     [", .", "Left / right brake"],
     ["B", "Parking brake"],
+  ]],
+  ["ATC and ground", [
+    ["'", "ATC menu: pushback, taxi, takeoff and landing clearances"],
+    ["1–9", "Choose in the ATC menu"],
+    ["", "Follow the green line; stop at the red bar (hold short)"],
   ]],
   ["View", [
     ["v V", "Next / previous view"],
@@ -124,6 +136,11 @@ export class Input {
       return;
     }
     if (e.target.closest?.("input, select, textarea")) return;
+    // The ATC menu takes digits while it is open.
+    if (app.radio?.key(e)) {
+      e.preventDefault();
+      return;
+    }
     const handled = this.handleKey(e);
     if (handled) e.preventDefault();
   }
@@ -198,6 +215,7 @@ export class Input {
       case "K": if (!e.repeat) c.speedbrake(1); return true;
       case "c": if (!e.repeat) c.toggleCanopy(); return true;
       case "H": if (!e.repeat && app.def?.id === "f16") { app.toggleFighterHud(); return true; } return false;
+      case "Delete": if (!e.repeat && app.def?.reversers) { c.toggleReversers(); return true; } return false;
       case "v": if (!e.repeat) app.stepView(1); return true;
       case "V": if (!e.repeat) app.stepView(-1); return true;
       case "x": app.zoom(-1); return true;
@@ -221,6 +239,7 @@ export class Input {
         () => app.sim.props.set("/autopilot/kap140/settings/cws", 0));
       case "Tab": if (!e.repeat) this.setYokeMode(!this.yokeMode); return true;
       case "?": case "F1": if (!e.repeat) app.toggleHelp(); return true;
+      case "'": if (!e.repeat) app.toggleAtc(); return true;
       case "Escape": if (!e.repeat) app.openMenu(); return true;
       default: return false;
     }

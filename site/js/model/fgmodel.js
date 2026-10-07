@@ -705,10 +705,18 @@ function createAnimation(cfg, root, ctx, model) {
       addPick(cfg, groups, ctx, model, false);
       return;
     }
+    case "light": {
+      // SGLightAnimation: the named object only marks a light source for
+      // FlightGear's deferred lighting (a spot light's volume); it is never
+      // drawn itself.
+      if (!names.length) return;
+      for (const g of install(root, names, newGroup())) g.visible = false;
+      model.stats.unsupported.light = (model.stats.unsupported.light ?? 0) + 1;
+      return;
+    }
     case "noshadow":
     case "shader":
     case "effect":
-    case "light":
     case "alpha-test":
     case "blend":
     case "flash":
