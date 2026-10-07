@@ -61,9 +61,16 @@ def main():
             return None
         return to_json(PropertyListReader(args.fgdata, search_dirs=[acdir]).read(p))
 
+    # Without its own /sim/systems/path an aircraft gets FlightGear's default
+    # from defaults.xml (the generic pitot, static and vacuum systems).
+    systems_path = systems.get("path")
+    defaults_xml = os.path.join(args.fgdata, "defaults.xml")
+    if systems_path is None and os.path.isfile(defaults_xml):
+        systems_path = PropertyListReader(args.fgdata).read(defaults_xml).get("/sim/systems/path")
+
     out = {
         "groups": groups,
-        "systems": single(systems.get("path")),
+        "systems": single(systems_path),
         "instrumentation": single(sim.get("instrumentation/path")),
     }
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
