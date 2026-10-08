@@ -31,10 +31,10 @@ export class TouchControls {
         <button type="button" data-hold="rudder-right" aria-label="Rudder right">▶</button>
         <button type="button" data-hold="brake">Brake</button>
         <button type="button" data-tap="park">Park</button>
-        <button type="button" data-tap="flaps-up" data-only="c172p 747">Flaps −</button>
-        <button type="button" data-tap="flaps-down" data-only="c172p 747">Flaps +</button>
-        <button type="button" data-tap="gear" data-only="f16 747">Gear</button>
-        <button type="button" data-tap="speedbrake" data-only="f16 747">Spd brk</button>
+        <button type="button" data-tap="flaps-up" data-only="c172p 747 737">Flaps −</button>
+        <button type="button" data-tap="flaps-down" data-only="c172p 747 737">Flaps +</button>
+        <button type="button" data-tap="gear" data-only="f16 747 737">Gear</button>
+        <button type="button" data-tap="speedbrake" data-only="f16 747 737">Spd brk</button>
         <button type="button" data-hold="trim-down" aria-label="Trim nose down">Trim ▼</button>
         <button type="button" data-hold="trim-up" aria-label="Trim nose up">Trim ▲</button>
       </div>`;

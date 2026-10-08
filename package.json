@@ -1,7 +1,7 @@
 {
   "name": "flightgear-web",
   "private": true,
-  "description": "FlightGear in the browser: JSBSim compiled to WebAssembly flying FlightGear's Cessna 172P, an F-16 or FlightGear's Boeing 747-400 over the San Francisco Bay Area",
+  "description": "FlightGear in the browser: JSBSim compiled to WebAssembly flying FlightGear's Cessna 172P, an F-16, FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over the San Francisco Bay Area",
   "license": "GPL-2.0-or-later",
   "type": "module",
   "scripts": {

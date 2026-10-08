@@ -2,7 +2,8 @@
 
 Implements the parts of SimGear's readProperties() the web build needs:
 `include=` merging (the included file first, then the including element's own
-children override it), `n=` indices with per-parent counters, `type=`, and
+children override it), `omit-node="y"` (an include's children go straight
+into the parent), `n=` indices with per-parent counters, `type=`, and
 `alias=`.  Include paths are resolved relative to the including file, then
 the aircraft directory, then FG_ROOT, like FlightGear does.
 """
@@ -86,6 +87,18 @@ class PropertyListReader:
                 continue  # comments / processing instructions
             has_children = True
             name = child.tag
+            if child.get("include") and child.get("omit-node") == "y":
+                # SimGear's props_io: the element itself is dropped and its
+                # children are copied into this node, numbered on from this
+                # node's own counters.
+                tmp = PropNode(name)
+                self._merge(child, tmp, base_dir)
+                for (cname, _cidx), cnode in tmp.children.items():
+                    index = counters.get(cname, 0)
+                    counters[cname] = index + 1
+                    cnode.name, cnode.index = cname, index
+                    node.children[(cname, index)] = cnode
+                continue
             n = child.get("n")
             if n is not None:
                 index = int(n)

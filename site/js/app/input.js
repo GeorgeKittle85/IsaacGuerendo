@@ -41,6 +41,15 @@ export const HELP = [
     ["Delete", "Thrust reversers (on the ground, at idle)"],
     ["Shift+S", "Autostart: APU and engines 1-4"],
   ]],
+  ["737 MAX 8", [
+    ["[ ]", "Flaps: UP, 1, 2, 5, 10, 15, 25, 30, 40"],
+    ["g G", "Gear up / down"],
+    ["Ctrl+B / k K", "Speedbrake lever: down, armed, flight detent, up"],
+    ["u U", "Autobrake selector: RTO, OFF, 1, 2, 3, MAX"],
+    ["Delete", "Thrust reversers (on the ground, at idle)"],
+    ["H", "Head-up display on / off"],
+    ["Shift+S", "Autostart: APU and engines 1-2"],
+  ]],
   ["Ground", [
     ["b", "Brakes (hold)"],
     [", .", "Left / right brake"],
@@ -214,7 +223,9 @@ export class Input {
       case "k": if (!e.repeat) c.speedbrake(-1); return true;
       case "K": if (!e.repeat) c.speedbrake(1); return true;
       case "c": if (!e.repeat) c.toggleCanopy(); return true;
-      case "H": if (!e.repeat && app.def?.id === "f16") { app.toggleFighterHud(); return true; } return false;
+      case "H": if (!e.repeat && app.def?.hud) { app.toggleFighterHud(); return true; } return false;
+      case "u": if (!e.repeat && app.def?.autobrake) { c.autobrake(1); return true; } return false;
+      case "U": if (!e.repeat && app.def?.autobrake) { c.autobrake(-1); return true; } return false;
       case "Delete": if (!e.repeat && app.def?.reversers) { c.toggleReversers(); return true; } return false;
       case "v": if (!e.repeat) app.stepView(1); return true;
       case "V": if (!e.repeat) app.stepView(-1); return true;

@@ -70,7 +70,10 @@ def main():
         with open(path, encoding="utf-8", errors="replace") as fh:
             files[vpath] = fh.read()
 
-    add(f"aircraft/{args.aircraft}/{model}.xml", main_xml)
+    # JSBSim finds the model at aircraft/<model>/<model>.xml, so the files go
+    # under the model's name (the 737-family directory holds 737-8.xml).
+    vac = f"aircraft/{model}"
+    add(f"{vac}/{model}.xml", main_xml)
 
     queue = [main_xml]
     seen = {os.path.abspath(main_xml)}
@@ -88,10 +91,10 @@ def main():
                 continue
             if el.tag in ("engine", "thruster"):
                 dirs = [os.path.join(acdir, "Engines"), shared_engines]
-                vdirs = [f"aircraft/{args.aircraft}/Engines", "engine"]
+                vdirs = [f"{vac}/Engines", "engine"]
             elif el.tag in ("system", "include") or el.tag.startswith("channel"):
                 dirs = [os.path.join(acdir, "Systems"), shared_systems, os.path.dirname(path)]
-                vdirs = [f"aircraft/{args.aircraft}/Systems", "systems", None]
+                vdirs = [f"{vac}/Systems", "systems", None]
             else:
                 continue
             found = None
@@ -118,7 +121,7 @@ def main():
 
     # Gear metadata FlightGear derives from the FDM (steering-norm etc.).
     gear = []
-    fdm_root = ET.fromstring(strip_comments(files[f"aircraft/{args.aircraft}/{model}.xml"]).encode("utf-8"))
+    fdm_root = ET.fromstring(strip_comments(files[f"{vac}/{model}.xml"]).encode("utf-8"))
     for contact in fdm_root.iter("contact"):
         ms = contact.find("max_steer")
         max_steer = float(ms.text) if ms is not None and ms.text else 0.0
@@ -129,7 +132,7 @@ def main():
 
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     with open(args.out, "w", encoding="utf-8") as fh:
-        json.dump({"aircraft": args.aircraft, "model": model, "gear": gear, "files": files}, fh,
+        json.dump({"aircraft": model, "model": model, "gear": gear, "files": files}, fh,
                   separators=(",", ":"))
     total = sum(len(v) for v in files.values())
     print(f"wrote {args.out}: {len(files)} files, {total / 1024:.0f} KiB")

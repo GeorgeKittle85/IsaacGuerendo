@@ -247,7 +247,7 @@ export class ATC {
     this.pushed = true;
     this.phase = "pushback";
     this.app.routeView?.showPath(path, this.net, { kind: "pushback" });
-    if (this.def.id === "747" || this.def.id === "f16") this.app.message?.("Release the parking brake (B) when the tug is connected");
+    if (this.def.tug?.type !== "towbar") this.app.message?.("Release the parking brake (B) when the tug is connected");
   }
 
   /** Ground's taxi clearance to the departure runway. */
@@ -274,8 +274,9 @@ export class ATC {
     this.phase = "taxi-out";
     this.clearance(reroute ? "New route: " : "");
     if (!this.enginesRunning()) this.app.message?.("Start the engines first: Shift+S");
-    if (this.def.id === "747" && this.props.get("/controls/flight/flaps") < 0.3) {
-      this.app.message?.("Set takeoff flaps on the way: ] to flaps 10 or 20", 6);
+    const tf = this.def.takeoffFlaps;
+    if (tf && this.props.get("/controls/flight/flaps") < tf.min) {
+      this.app.message?.(`Set takeoff flaps on the way: ] to ${tf.say}`, 6);
     }
   }
 
@@ -338,8 +339,9 @@ export class ATC {
     this.app.radio?.clearGuidance();
     this.app.radio?.setStation(tower);
     // The route stays drawn up to the runway; it goes once airborne.
-    if (this.def.id === "747" && this.props.get("/controls/flight/flaps") < 0.3 && w.wow) {
-      this.app.message?.("Takeoff flaps! ] sets flaps 10 or 20", 6);
+    const tf = this.def.takeoffFlaps;
+    if (tf && this.props.get("/controls/flight/flaps") < tf.min && w.wow) {
+      this.app.message?.(`Takeoff flaps! ] sets ${tf.say}`, 6);
     }
   }
 
@@ -371,7 +373,7 @@ export class ATC {
       this.phase = "taxi-in";
       return;
     }
-    const prefer = this.def.id === "747" ? ["gate", "cargo"] : this.def.id === "f16" ? ["mil-fighter", "ga", "cargo"] : ["ga", "tie-down", "tie_down"];
+    const prefer = this.def.parking ?? ["ga", "tie-down", "tie_down"];
     const park = reroute && this.route?.parking ? this.route.parking : net.arrivalParking(this.nose(w), this.def.wingspanM, prefer);
     const route = park && net.routeToParking(this.nose(w), park);
     if (!route) {

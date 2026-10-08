@@ -11,11 +11,17 @@
 //                autopush interface, the c172p's own towbar, or JSBSim's
 //                generic pushback system
 //   callsign     on the radio, written and spoken
+//   parking      parking types it prefers, best first (ground networks' types)
+//   takeoffFlaps the least flap setting it takes off with, and what to tell
+//                the pilot to set
+//   hud          the head-up display in the cockpit view, if any: the F-16's
+//                ("fighter") or the 737's head-up guidance system ("hgs")
 
 import { C172P } from "./c172p.js";
 import { F16, F16_PROPS, F16_RULES } from "./f16.js";
 import { F16_MODEL } from "./f16-model.js";
 import { B744 } from "./b744.js";
+import { B738M } from "./b738m.js";
 
 export const AIRCRAFT = [
   {
@@ -34,6 +40,7 @@ export const AIRCRAFT = [
     wingspanM: 11,
     noseGearM: 1.05,
     tug: { type: "towbar", maxSteerDeg: 30, speedKmh: 4 },
+    parking: ["ga", "tie-down", "tie_down"],
     callsign: { text: "N85KG", spoken: "Skyhawk eight five kilo golf", short: "Skyhawk eight five kilo golf" },
   },
   {
@@ -56,6 +63,8 @@ export const AIRCRAFT = [
     // FlightGear's military tug, hitched at the nose wheel (JSBSim's NOSE_LG contact).
     tug: { type: "pushback", maxSteerDeg: 80, speedKmh: 6,
       model: { url: "data/models/pushback-military", offset: [-3.04, 0, -1.83], steer: "fcs/steer-pos-deg" } },
+    parking: ["mil-fighter", "ga", "cargo"],
+    hud: "fighter",
     // Viper is the F-16's nickname; 85 is a certain 49ers tight end's number.
     callsign: { text: "VIPER85", spoken: "Viper eight five", short: "Viper eight five" },
   },
@@ -74,12 +83,44 @@ export const AIRCRAFT = [
     reversers: true,
     // 747-400-set.xml /sim/flaps: detents 0, 1, 5, 10, 20, 25 and 30.
     flaps: { settings: [0, 0.033, 0.167, 0.333, 0.667, 0.833, 1], names: ["UP", "1", "5", "10", "20", "25", "30"] },
-    start: { finalKts: 150, finalFlaps: 0.833, airKts: 250, airGearUp: true, throttle: 0.6, takeoffFlaps: 0.667, runwayOffsetM: 50 },
+    start: { finalKts: 150, finalFlaps: 0.833, airKts: 250, airGearUp: true, throttle: 0.6, takeoffFlaps: 0.667, runwayOffsetM: 50,
+      tip: "Flaps 20 set for takeoff · rotate at 150 kt · g gear up" },
     engines: 4,
     wingspanM: 64.4,
     noseGearM: 22.05,
     tug: { type: "autopush", speedKmh: 8 },
+    parking: ["gate", "cargo"],
+    takeoffFlaps: { min: 0.3, say: "flaps 10 or 20" },
     callsign: { text: "FTH85", spoken: "Faithful eight five heavy", short: "Faithful eight five heavy" },
+  },
+  {
+    id: "737",
+    name: "Boeing 737 MAX 8",
+    short: "737 MAX 8",
+    blurb: "The 737-family project's 737 MAX 8: two CFM LEAP-1B turbofans, flaps 1 to 40, autobrakes and a head-up display. Push back, taxi with ATC, fly the Bay.",
+    icon: "M32 3c1.4 0 2.4 1.8 2.4 4.5V24l24.1 12.5 1.3.3.2 2.8-25.6-6.1V50l10.1 5.5.3 2.5-10.8-1.5L32 61l-2-4.5-10.8 1.5.3-2.5L29.6 50V33.5L4 39.6l.2-2.8 1.3-.3L29.6 24V7.5c0-2.7 1-4.5 2.4-4.5zM40.6 22.5c0-1 .7-1.6 1.6-1.6s1.6.6 1.6 1.6V31h-3.2zM20.2 22.5c0-1 .7-1.6 1.6-1.6s1.6.6 1.6 1.6V31h-3.2z",
+    data: { fdm: "data/fdm/737-8.json", props: "data/aircraft/737-8/props.json", rules: "data/aircraft/737-8/rules.json" },
+    Systems: B738M,
+    model: { type: "fg", url: "data/aircraft/737-8/model" },
+    sound: "data/aircraft/737-8/sound",
+    retractableGear: true,
+    speedbrake: "lever",
+    reversers: true,
+    autobrake: true,
+    // 737-8.xml's flap channel: detents UP, 1, 2, 5, 10, 15, 25, 30 and 40.
+    flaps: { settings: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1], names: ["UP", "1", "2", "5", "10", "15", "25", "30", "40"] },
+    start: { finalKts: 150, finalFlaps: 0.875, airKts: 250, airGearUp: true, throttle: 0.6, takeoffFlaps: 0.375, runwayOffsetM: 30,
+      tip: "Flaps 5 set for takeoff · rotate at 145 kt · g gear up" },
+    engines: 2,
+    wingspanM: 35.9,
+    noseGearM: 15.72,
+    tug: { type: "autopush", speedKmh: 8 },
+    parking: ["gate", "cargo"],
+    takeoffFlaps: { min: 0.1, say: "flaps 5" },
+    hud: "hgs",
+    wheelsFt: 9, // /position/altitude-agl-ft at rest: the radio altitude's zero
+    // The 49ers' cheerleaders, and the Bay Area's own gold rush; 85 again.
+    callsign: { text: "GLD85", spoken: "Gold Rush eight five", short: "Gold Rush eight five" },
   },
 ];
 

@@ -59,8 +59,10 @@ def merge_overlay(dst, src):
 
 
 class Builder:
-    def __init__(self, fgdata, out, excludes, max_tex, roots=None):
+    def __init__(self, fgdata, out, excludes, max_tex, roots=None, aircraft_dir=None):
         self.fg = os.path.abspath(fgdata)
+        # FlightGear also looks up relative paths in the aircraft's directory.
+        self.aircraft_dir = os.path.join(self.fg, aircraft_dir) if aircraft_dir else None
         # Data roots searched in order, like FlightGear's resource paths
         # (e.g. the TerraSync directory before FG_ROOT for scenery models).
         self.roots = [os.path.abspath(r) for r in (roots or [fgdata])]
@@ -83,7 +85,8 @@ class Builder:
     def resolve(self, ref, base_dir):
         ref = ref.strip()
         rooted = [os.path.join(r, ref.lstrip("/")) for r in self.roots]
-        cands = rooted if ref.startswith("/") else [os.path.join(base_dir, ref)] + rooted
+        own = [os.path.join(self.aircraft_dir, ref)] if self.aircraft_dir else []
+        cands = rooted if ref.startswith("/") else [os.path.join(base_dir, ref)] + own + rooted
         for c in cands:
             if os.path.isfile(c):
                 return os.path.normpath(c)
@@ -231,9 +234,10 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--exclude", action="append", default=[], help="regex of submodel paths to skip")
     ap.add_argument("--max-texture", type=int, default=2048)
+    ap.add_argument("--aircraft-dir", help="the aircraft's directory relative to FG_ROOT, searched for relative paths")
     args = ap.parse_args()
 
-    b = Builder(args.fgdata, args.out, args.exclude, args.max_texture)
+    b = Builder(args.fgdata, args.out, args.exclude, args.max_texture, aircraft_dir=args.aircraft_dir)
     root = b.model(os.path.join(b.fg, args.model))
     out = {"root": root, "models": b.models, "textures": b.textures, "effects": b.effects}
     os.makedirs(args.out, exist_ok=True)

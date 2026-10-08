@@ -24,12 +24,13 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fgdata", required=True)
     ap.add_argument("--aircraft", default="c172p")
+    ap.add_argument("--set-file", help="default: <aircraft>-set.xml")
     ap.add_argument("--out", required=True)
     args = ap.parse_args()
 
     acdir = os.path.join(args.fgdata, "Aircraft", args.aircraft)
     reader = PropertyListReader(args.fgdata, search_dirs=[acdir])
-    setxml = reader.read(os.path.join(acdir, f"{args.aircraft}-set.xml"))
+    setxml = reader.read(os.path.join(acdir, args.set_file or f"{args.aircraft}-set.xml"))
     sim = setxml.get("/sim")
 
     def resolve(ref):

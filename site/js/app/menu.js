@@ -197,7 +197,7 @@ export class Menu {
       }
       sel.append(og);
     }
-    const prefer = def.id === "747" ? ["gate", "cargo"] : def.id === "f16" ? ["mil-fighter", "ga", "cargo", "gate"] : ["ga", "tie-down", "tie_down", "gate"];
+    const prefer = [...(def.parking ?? []), "gate"];
     const first = prefer.map((t) => spots.find((p) => p.type === t)).find(Boolean) ?? spots[0];
     sel.value = this.savedGate && spots.some((p) => p.name === this.savedGate) ? this.savedGate : first.name;
   }

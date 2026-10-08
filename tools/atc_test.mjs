@@ -5,7 +5,7 @@
 // gives to the hold short point, gets its takeoff clearance, takes off and
 // is handed to Departure; then it lands back and taxis in to a gate.
 //
-// Usage: node tools/atc_test.mjs [--aircraft c172p|f16|747] [--verbose]
+// Usage: node tools/atc_test.mjs [--aircraft c172p|f16|747|737] [--verbose]
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -15,6 +15,7 @@ import { Simulation } from "../site/js/sim.js";
 import { C172P } from "../site/js/aircraft/c172p.js";
 import { F16, F16_PROPS, F16_RULES } from "../site/js/aircraft/f16.js";
 import { B744 } from "../site/js/aircraft/b744.js";
+import { B738M } from "../site/js/aircraft/b738m.js";
 import { GroundNet, activeRunway, sayTaxiway, sayRunway, sayFrequency } from "../site/js/atc/groundnet.js";
 import { Pushback } from "../site/js/atc/pushback.js";
 import { ATC } from "../site/js/atc/atc.js";
@@ -39,23 +40,30 @@ const AIRCRAFT = {
   c172p: {
     id: "c172p", Systems: C172P, engines: 2, wingspanM: 11, noseGearM: 1.05,
     data: { fdm: "data/fdm/c172p.json", props: "data/aircraft/c172p/props.json", rules: "data/aircraft/c172p/rules.json" },
-    tug: { type: "towbar", maxSteerDeg: 30, speedKmh: 4 },
+    tug: { type: "towbar", maxSteerDeg: 30, speedKmh: 4 }, parking: ["ga", "tie-down", "tie_down"],
     callsign: { text: "N85KG", spoken: "Skyhawk eight five kilo golf" },
     taxiKt: 12, look: 15, rotateKt: 55, pitch: 8, gain: 0.06, gate: "GA ramp 1",
   },
   f16: {
     id: "f16", Systems: F16, engines: 1, wingspanM: 9.96, noseGearM: 3.04,
     data: { fdm: "data/fdm/f16.json", props: F16_PROPS, rules: F16_RULES },
-    tug: { type: "pushback", maxSteerDeg: 80, speedKmh: 6 },
+    tug: { type: "pushback", maxSteerDeg: 80, speedKmh: 6 }, parking: ["mil-fighter", "ga", "cargo"],
     callsign: { text: "VIPER85", spoken: "Viper eight five" },
     taxiKt: 15, look: 20, rotateKt: 150, pitch: 12, gain: 0.08,
   },
   747: {
     id: "747", Systems: B744, engines: 4, wingspanM: 64.4, noseGearM: 22.05,
     data: { fdm: "data/fdm/747-400.json", props: "data/aircraft/747-400/props.json", rules: "data/aircraft/747-400/rules.json" },
-    tug: { type: "autopush", speedKmh: 8 },
+    tug: { type: "autopush", speedKmh: 8 }, parking: ["gate", "cargo"], takeoffFlaps: { min: 0.3, say: "flaps 10 or 20" },
     callsign: { text: "FTH85", spoken: "Faithful eight five heavy" },
-    taxiKt: 15, look: 45, rotateKt: 150, pitch: 10, gain: 0.1, gate: "D55",
+    taxiKt: 15, look: 45, rotateKt: 150, pitch: 10, gain: 0.1, gate: "D55", flaps: 0.667, taxiThr: 0.45,
+  },
+  737: {
+    id: "737", Systems: B738M, engines: 2, wingspanM: 35.9, noseGearM: 15.72,
+    data: { fdm: "data/fdm/737-8.json", props: "data/aircraft/737-8/props.json", rules: "data/aircraft/737-8/rules.json" },
+    tug: { type: "autopush", speedKmh: 8 }, parking: ["gate", "cargo"], takeoffFlaps: { min: 0.1, say: "flaps 5" },
+    callsign: { text: "GLD85", spoken: "Gold Rush eight five" },
+    taxiKt: 15, look: 35, rotateKt: 145, pitch: 10, gain: 0.08, gate: "E66", flaps: 0.375, taxiThr: 0.45,
   },
 };
 
@@ -131,7 +139,7 @@ function taxi(atc, def, p, net) {
   }
   p.set("/controls/flight/rudder", rudder);
   const gs = w.gsKt;
-  const thr = want === 0 ? 0 : clamp(0.15 + (want - gs) * 0.06, 0, def.id === "747" ? 0.45 : 0.6);
+  const thr = want === 0 ? 0 : clamp(0.15 + (want - gs) * 0.06, 0, def.taxiThr ?? 0.6);
   for (let i = 0; i < def.engines; i++) p.set(`/controls/engines/engine[${i}]/throttle`, thr);
   const brake = want === 0 ? 1 : gs > want + 2 ? 0.4 : 0;
   p.set("/controls/gear/brake-left", brake);
@@ -210,7 +218,7 @@ function flight(id) {
   // Takeoff.
   atc.options().find((o) => /Ready for departure/.test(o.label)).run();
   check(atc.phase === "cleared" && said(/cleared for takeoff/), `${id}: cleared for takeoff`);
-  if (def.id === "747") p.set("/controls/flight/flaps", 0.667);
+  if (def.flaps) p.set("/controls/flight/flaps", def.flaps);
   // Line up, then full power along the runway.
   const rw = net.runway("28R");
   let airborne = false;
@@ -292,14 +300,15 @@ function arrival(id) {
 }
 
 const only = arg("--aircraft", null);
-for (const id of only ? [only] : ["c172p", "747", "f16"]) flight(id);
-for (const id of only ? [only] : ["c172p", "747"]) arrival(id);
+for (const id of only ? [only] : ["c172p", "747", "737", "f16"]) flight(id);
+for (const id of only ? [only] : ["c172p", "747", "737"]) arrival(id);
 
-// The pushback tug alone, each aircraft at a gate it fits.
-{
-  const def = AIRCRAFT[747];
+// The pushback tug alone, cold and dark, at a gate each airliner fits.
+for (const [id, gate] of [["747", "G98"], ["737", "F72"]]) {
+  if (only && only !== id) continue;
+  const def = AIRCRAFT[id];
   const sim = new Simulation(jsb, { fdm: read(def.data.fdm), props: read(def.data.props), rules: read(def.data.rules) }, def.Systems);
-  const g = nets.KSFO.parkingByName("G98");
+  const g = nets.KSFO.parkingByName(gate);
   sim.start({ lat: g.lat, lon: g.lon, headingDeg: g.heading, onGround: true, running: false });
   const pb = new Pushback(sim, def.tug);
   const path = nets.KSFO.pushbackPath(g).slice(1);
@@ -310,7 +319,7 @@ for (const id of only ? [only] : ["c172p", "747"]) arrival(id);
   }
   const pos = nets.KSFO.xy(sim.props.get("/position/latitude-deg"), sim.props.get("/position/longitude-deg"));
   const d = Math.hypot(pos.x - path.at(-1).x, pos.y - path.at(-1).y);
-  check(!pb.active && d < 10, `747 cold and dark pushed back from G98, ${d.toFixed(1)} m from the pushback point`);
+  check(!pb.active && d < 10, `${id} cold and dark pushed back from ${gate}, ${d.toFixed(1)} m from the pushback point`);
 }
 
 console.log(failed ? `FAILED (${failed})` : "PASS");

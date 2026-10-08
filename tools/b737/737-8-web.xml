@@ -1,0 +1,233 @@
+<?xml version="1.0"?>
+<!--
+  The web version's Boeing 737 MAX 8 model: the 737-family project's model
+  (Aircraft/737-family/Models/737-8.xml, GPL-2.0) with what the project has
+  not hooked up yet:
+
+  - It sits on the flight model's gear.  The model's origin is 2.0 m ahead
+    of and 1.78 m above JSBSim's reference point (737-8.xml's VRP), so its
+    tyres touch where the main gear's contact points are.
+  - The project's Autopush tug (Models/Autopush/pushback.xml, the Kalmar
+    FB250) under the nose wheel, shown while it is connected.
+  - The project's ALS lights (Models/Lights/ALS) at the model's light
+    lenses: beacons, navigation lights and strobes.
+  - The nose gear retracts: the model only moves its doors.  The leg swings
+    forward about its trunnion into the wheel well, and is hidden once the
+    doors have closed behind it.
+  - From the cockpit, the windshield frame and the cabin are hidden: they
+    are built to be seen from outside and fill the windows from inside, and
+    there is no 3D panel yet (the cockpit view looks out over the head-up
+    display instead).
+  - The spoilers, which the model does not animate yet: the flight spoilers
+    (Boeing's 2-5 and 8-11) from the flight model's positions in degrees,
+    the ground spoilers (1, 6, 7, 12) from fcs/spoiler-pos-norm.  The model
+    numbers each wing's panels from the root (spoiler.L1 is Boeing's 6).
+
+  Coordinates are the model's own: x aft, y right, z up, metres.
+  Built by tools/build_737.sh.
+-->
+<PropertyList>
+
+  <offsets>
+    <x-m>-2.0</x-m>
+    <z-m>-1.78</z-m>
+  </offsets>
+
+  <model>
+    <name>737-8</name>
+    <path>Aircraft/737-family/Models/737-8.xml</path>
+  </model>
+
+  <!-- The tug: its origin under the nose wheel, on the ground with the strut extended. -->
+  <model>
+    <name>Autopush</name>
+    <path>Aircraft/737-family/Models/Autopush/pushback.xml</path>
+    <offsets>
+      <x-m>-13.82</x-m>
+      <z-m>-1.416</z-m>
+    </offsets>
+  </model>
+
+  <!-- Lights -->
+  <model>
+    <name>beacon-top</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/beacon.xml</path>
+    <offsets><x-m>-1.50</x-m><z-m>4.25</z-m></offsets>
+  </model>
+  <model>
+    <name>beacon-bottom</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/beacon.xml</path>
+    <offsets><x-m>0.87</x-m><z-m>-0.15</z-m></offsets>
+  </model>
+  <model>
+    <name>nav-left</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/red-navlight.xml</path>
+    <offsets><x-m>5.13</x-m><y-m>-16.88</y-m><z-m>2.66</z-m></offsets>
+  </model>
+  <model>
+    <name>nav-right</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/green-navlight.xml</path>
+    <offsets><x-m>5.13</x-m><y-m>16.88</y-m><z-m>2.66</z-m></offsets>
+  </model>
+  <model>
+    <name>strobe-left</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/left-strobe.xml</path>
+    <offsets><x-m>5.72</x-m><y-m>-17.22</y-m><z-m>2.62</z-m></offsets>
+  </model>
+  <model>
+    <name>strobe-right</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/right-strobe.xml</path>
+    <offsets><x-m>5.72</x-m><y-m>17.22</y-m><z-m>2.62</z-m></offsets>
+  </model>
+  <model>
+    <name>strobe-tail</name>
+    <path>Aircraft/737-family/Models/Lights/ALS/tail-strobe.xml</path>
+    <offsets><x-m>19.87</x-m><z-m>3.48</z-m></offsets>
+  </model>
+
+  <!-- Nose gear: 85° forward at position 0 -->
+  <animation>
+    <type>rotate</type>
+    <object-name>nlg.armL</object-name>
+    <object-name>nlg.armU</object-name>
+    <object-name>nlg.axle</object-name>
+    <object-name>nlg.scissorL</object-name>
+    <object-name>nlg.scissorU</object-name>
+    <object-name>nlg.steer</object-name>
+    <object-name>nlg.steer-pistonL1</object-name>
+    <object-name>nlg.steer-pistonL2</object-name>
+    <object-name>nlg.steer-pistonR1</object-name>
+    <object-name>nlg.steer-pistonR2</object-name>
+    <object-name>nlg.steerL</object-name>
+    <object-name>nlg.steerR</object-name>
+    <object-name>nlg.strut1</object-name>
+    <object-name>nlg.strut2</object-name>
+    <object-name>nlg.strut3</object-name>
+    <object-name>nlg.strut4</object-name>
+    <object-name>nlg.strut5</object-name>
+    <object-name>nlg.strut6</object-name>
+    <object-name>nlg.taxi-cable1</object-name>
+    <object-name>nlg.taxi-cable2</object-name>
+    <object-name>nlg.taxi-cable3</object-name>
+    <object-name>nlg.tire</object-name>
+    <property>gear/gear[0]/position-norm</property>
+    <factor>-85</factor>
+    <offset-deg>85</offset-deg>
+    <center><x-m>-14.42</x-m><y-m>0</y-m><z-m>0.88</z-m></center>
+    <axis><y>1</y></axis>
+  </animation>
+  <animation>
+    <type>select</type>
+    <object-name>nlg.armL</object-name>
+    <object-name>nlg.armU</object-name>
+    <object-name>nlg.axle</object-name>
+    <object-name>nlg.scissorL</object-name>
+    <object-name>nlg.scissorU</object-name>
+    <object-name>nlg.steer</object-name>
+    <object-name>nlg.steer-pistonL1</object-name>
+    <object-name>nlg.steer-pistonL2</object-name>
+    <object-name>nlg.steer-pistonR1</object-name>
+    <object-name>nlg.steer-pistonR2</object-name>
+    <object-name>nlg.steerL</object-name>
+    <object-name>nlg.steerR</object-name>
+    <object-name>nlg.strut1</object-name>
+    <object-name>nlg.strut2</object-name>
+    <object-name>nlg.strut3</object-name>
+    <object-name>nlg.strut4</object-name>
+    <object-name>nlg.strut5</object-name>
+    <object-name>nlg.strut6</object-name>
+    <object-name>nlg.taxi-cable1</object-name>
+    <object-name>nlg.taxi-cable2</object-name>
+    <object-name>nlg.taxi-cable3</object-name>
+    <object-name>nlg.tire</object-name>
+    <condition><greater-than><property>gear/gear[0]/position-norm</property><value>0.02</value></greater-than></condition>
+  </animation>
+
+  <animation>
+    <type>select</type>
+    <object-name>windshield-frame</object-name>
+    <object-name>cabin</object-name>
+    <condition><not><property>sim/current-view/internal</property></not></condition>
+  </animation>
+
+  <!-- Spoilers: hinges along each panel's leading edge; left axes run
+       outboard, right ones inboard, so positive angles raise them all. -->
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.L5</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-23-pos</property>
+    <axis><x1-m>3.119</x1-m><y1-m>-8.314</y1-m><z1-m>1.969</z1-m><x2-m>3.471</x2-m><y2-m>-9.356</y2-m><z2-m>2.065</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.L4</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-23-pos</property>
+    <axis><x1-m>2.764</x1-m><y1-m>-7.295</y1-m><z1-m>1.874</z1-m><x2-m>3.111</x2-m><y2-m>-8.321</y2-m><z2-m>1.969</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.L3</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-45-pos</property>
+    <axis><x1-m>2.406</x1-m><y1-m>-6.266</y1-m><z1-m>1.778</z1-m><x2-m>2.757</x2-m><y2-m>-7.302</y2-m><z2-m>1.874</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.L2</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-45-pos</property>
+    <axis><x1-m>2.025</x1-m><y1-m>-5.174</y1-m><z1-m>1.676</z1-m><x2-m>2.398</x2-m><y2-m>-6.274</y2-m><z2-m>1.778</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.R2</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-89-pos</property>
+    <axis><x1-m>2.398</x1-m><y1-m>6.274</y1-m><z1-m>1.778</z1-m><x2-m>2.025</x2-m><y2-m>5.174</y2-m><z2-m>1.676</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.R3</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-89-pos</property>
+    <axis><x1-m>2.757</x1-m><y1-m>7.302</y1-m><z1-m>1.874</z1-m><x2-m>2.406</x2-m><y2-m>6.266</y2-m><z2-m>1.778</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.R4</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-1011-pos</property>
+    <axis><x1-m>3.111</x1-m><y1-m>8.321</y1-m><z1-m>1.969</z1-m><x2-m>2.764</x2-m><y2-m>7.295</y2-m><z2-m>1.874</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.R5</object-name>
+    <property>fdm/jsbsim/fcs/spoilers-1011-pos</property>
+    <axis><x1-m>3.471</x1-m><y1-m>9.356</y1-m><z1-m>2.065</z1-m><x2-m>3.119</x2-m><y2-m>8.314</y2-m><z2-m>1.969</z2-m></axis>
+  </animation>
+  <!-- Ground spoilers: up to 50° -->
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.L1</object-name>
+    <property>fdm/jsbsim/fcs/spoiler-pos-norm</property>
+    <factor>50</factor>
+    <axis><x1-m>2.142</x1-m><y1-m>-2.234</y1-m><z1-m>1.089</z1-m><x2-m>2.143</x2-m><y2-m>-4.643</y2-m><z2-m>1.528</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.L6</object-name>
+    <property>fdm/jsbsim/fcs/spoiler-pos-norm</property>
+    <factor>50</factor>
+    <axis><x1-m>3.479</x1-m><y1-m>-9.348</y1-m><z1-m>2.065</z1-m><x2-m>3.894</x2-m><y2-m>-10.569</y2-m><z2-m>2.178</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.R1</object-name>
+    <property>fdm/jsbsim/fcs/spoiler-pos-norm</property>
+    <factor>50</factor>
+    <axis><x1-m>2.143</x1-m><y1-m>4.643</y1-m><z1-m>1.528</z1-m><x2-m>2.142</x2-m><y2-m>2.234</y2-m><z2-m>1.089</z2-m></axis>
+  </animation>
+  <animation>
+    <type>rotate</type>
+    <object-name>spoiler.R6</object-name>
+    <property>fdm/jsbsim/fcs/spoiler-pos-norm</property>
+    <factor>50</factor>
+    <axis><x1-m>3.894</x1-m><y1-m>10.569</y1-m><z1-m>2.178</z1-m><x2-m>3.479</x2-m><y2-m>9.348</y2-m><z2-m>2.065</z2-m></axis>
+  </animation>
+
+</PropertyList>

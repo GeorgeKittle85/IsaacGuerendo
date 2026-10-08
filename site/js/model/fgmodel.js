@@ -441,8 +441,10 @@ function applyEffect(cfg, root, ctx, model) {
   root.traverse((o) => {
     if (names.has(o.name)) targets.push(o);
   });
+  // Effect parameters' <use> paths start at the property root, even
+  // without a leading slash (the 737's lights say sim/model/lights/...).
   const use = params.intensity_scale?.use;
-  const scale = use ? ctx.props.node(use) : null;
+  const scale = use ? ctx.props.node(absPath(use, "/")) : null;
   for (const t of targets) {
     t.traverse((m) => {
       if (!m.isMesh) return;
@@ -471,6 +473,15 @@ function createAnimation(cfg, root, ctx, model) {
   model.stats.animations++;
 
   switch (type) {
+    case "":
+    case "none":
+    case "null": {
+      // SGGroupAnimation: no animation, just a group of objects under the
+      // animation's name, so later animations can move them together (the
+      // 747's gear legs: "GearNose", "GearBodyLeft", ...).
+      install(root, names, newGroup());
+      return;
+    }
     case "select": {
       const groups = install(root, names, newGroup());
       const c = cond ?? (() => true);

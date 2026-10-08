@@ -1,4 +1,5 @@
-// The F-16's head-up display, drawn over the cockpit view on a 2D canvas.
+// The F-16's head-up display, drawn over the cockpit view on a 2D canvas,
+// and in the "hgs" style the 737's head-up guidance system.
 //
 // Everything outside-world related is conformal: pitch ladder rungs, the
 // flight path marker and the boresight are placed by projecting their
@@ -7,7 +8,10 @@
 // attitude.  The symbols follow the F-16's HUD: gun cross, flight path
 // marker, pitch ladder (dashed below the horizon), airspeed box on the left,
 // altitude box and radar altitude on the right, heading tape at the top, and
-// Mach, G and angle of attack at the lower left.
+// Mach, G and angle of attack at the lower left.  The 737's HGS has the
+// aircraft reference symbol instead of the gun cross, ground speed and Mach
+// at the lower left, the radio altitude of the wheels, and the flaps,
+// speedbrake, gear and autobrake at the lower right.
 
 import * as THREE from "three";
 
@@ -32,6 +36,7 @@ export class FighterHud {
     this.ctx = this.canvas.getContext("2d");
     this.enabled = true;
     this.shown = false;
+    this.style = "fighter"; // or "hgs"
     this.maxG = 1;
     this.t = {
       v: new THREE.Vector3(), p: new THREE.Vector3(), fwd: new THREE.Vector3(), right: new THREE.Vector3(),
@@ -77,9 +82,11 @@ export class FighterHud {
   /**
    * camera: the cockpit camera; aircraftMatrix: the model's matrix in render
    * space (x aft, y right, z up); enu: {e, n, u} render-space unit vectors at
-   * the aircraft; p: the property tree.
+   * the aircraft; p: the property tree; info: {flaps, autobrake, speedbrake,
+   * wheelsFt} for the HGS.
    */
-  draw(camera, aircraftMatrix, enu, p) {
+  draw(camera, aircraftMatrix, enu, p, info = {}) {
+    const hgs = this.style === "hgs";
     if (!this.enabled) {
       this.clear();
       return;
@@ -166,9 +173,16 @@ export class FighterHud {
       }
     }
 
-    // Gun cross at the boresight.
+    // Gun cross at the boresight, or the HGS's aircraft reference symbol.
     const bs = this.project(camera, t.fwd);
-    if (bs) {
+    if (bs && hgs) {
+      const a = 16 * k, b = 6 * k, v = 5 * k;
+      lines.moveTo(bs.x - a, bs.y);
+      lines.lineTo(bs.x - b, bs.y);
+      lines.lineTo(bs.x, bs.y + v);
+      lines.lineTo(bs.x + b, bs.y);
+      lines.lineTo(bs.x + a, bs.y);
+    } else if (bs) {
       const a = 9 * k, g = 3 * k;
       seg(lines, bs.x - a, bs.y, bs.x - g, bs.y);
       seg(lines, bs.x + g, bs.y, bs.x + a, bs.y);
@@ -224,9 +238,33 @@ export class FighterHud {
     const rest = String(Math.abs(altR % 1000)).padStart(3, "0");
     text(thousands ? `${thousands},${rest}` : rest, rx + bw - 6 * k, midY + 5 * k, "right", 14);
     const agl = p.get("/position/altitude-agl-ft");
-    if (agl < 5000) text(`AR ${String(Math.max(0, Math.round(agl / 10) * 10)).padStart(5, "0")}`, rx + bw, midY + 24 * k, "right", 11);
+    if (hgs) {
+      // Radio altitude of the wheels, in 10 ft steps above 100 ft.
+      const ra = Math.max(0, agl - (info.wheelsFt ?? 0));
+      if (ra < 2500) text(`${Math.round(ra < 100 ? ra : ra / 10) * (ra < 100 ? 1 : 10)}RA`, rx + bw, midY + 24 * k, "right", 12);
+    } else if (agl < 5000) {
+      text(`AR ${String(Math.max(0, Math.round(agl / 10) * 10)).padStart(5, "0")}`, rx + bw, midY + 24 * k, "right", 11);
+    }
     const vs = Math.round((p.get("/velocities/vertical-speed-fps") * 60) / 100) * 100;
     text(vs > 0 ? `+${vs}` : vs < 0 ? `−${-vs}` : "0", rx + bw, midY - 16 * k, "right", 11);
+
+    if (hgs) {
+      // Ground speed and Mach; flaps, speedbrake, gear and autobrake.
+      const bx = box.l + 16 * k;
+      text(`GS ${Math.round(p.get("/velocities/groundspeed-kt"))}`, bx, box.b - 12 * k, "left", 12);
+      const mach = p.get("/velocities/mach");
+      if (mach > 0.4) text(`M ${mach.toFixed(2).replace(/^0/, "")}`, bx, box.b - 28 * k, "left", 12);
+      const right = [];
+      if (info.flaps && info.flaps !== "UP") right.push(`FLAPS ${info.flaps}`);
+      if (info.speedbrake && info.speedbrake !== "DOWN") right.push(info.speedbrake === "ARMED" ? "SPD BRK ARM" : "SPEEDBRAKE");
+      const gear = p.get("/gear/gear[0]/position-norm");
+      if (gear > 0.01) right.push(gear > 0.99 ? "GEAR DN" : "GEAR");
+      if (info.autobrake && info.autobrake !== "OFF") right.push(`AUTOBRAKE ${info.autobrake}`);
+      right.forEach((s, i) => text(s, box.r - 16 * k, box.b - (12 + 16 * i) * k, "right", 12));
+      this.stroke(ctx, lines, dashed, texts, k, font);
+      ctx.restore();
+      return;
+    }
 
     // Mach, G and angle of attack.
     const gLoad = p.get("/accelerations/pilot-g");
@@ -239,7 +277,12 @@ export class FighterHud {
     if (p.get("/gear/gear[0]/position-norm") > 0.01) text("GEAR", box.r - 16 * k, box.b - 12 * k, "right", 12);
     if (p.getBool("/engines/engine[0]/augmentation")) text("AB", box.r - 16 * k, box.b - 28 * k, "right", 12);
 
-    // Dark halo first so the green reads against a bright sky.
+    this.stroke(ctx, lines, dashed, texts, k, font);
+    ctx.restore();
+  }
+
+  /** Draws the symbols: a dark halo first so the green reads against a bright sky. */
+  stroke(ctx, lines, dashed, texts, k, font) {
     for (const [path, dash] of [[lines, []], [dashed, [6 * k, 5 * k]]]) {
       ctx.setLineDash(dash);
       ctx.strokeStyle = SHADOW;
@@ -259,6 +302,5 @@ export class FighterHud {
       ctx.strokeText(s.s, s.x, s.y);
       ctx.fillText(s.s, s.x, s.y);
     }
-    ctx.restore();
   }
 }

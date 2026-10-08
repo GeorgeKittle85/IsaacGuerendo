@@ -48,6 +48,31 @@ Included or converted from FlightGear 2024.1:
     Merspieler, GPL-2.0)
 - A port of the procedural light shader (`Shaders/light-ALS.*`).
 
+## 737-family (the Boeing 737 MAX 8)
+
+- Sources: https://github.com/naviat-dev/737-family
+- License: GNU General Public License, version 2 (its `LICENSE`)
+- Authors: Israel Emmanuel (naviat), Josh Davidson (Octal450), Austin
+  Tallent (falconbird16), Braindamage, Captain Jake, Marsdolphin, Semir
+  Gebran (CaptB), SP-NTX and the 737 MAX team; its JSBSim flight model by
+  Michael Soitanen, YV3399, Octal450 and sriemmanuel787
+
+Included or converted by `tools/build_737.sh`:
+
+- From its `dev` branch (commit 2d6ebdc): the JSBSim flight model
+  (`737-8.xml`, the LEAP-1B and 131-9D APU engines, the APU, electrical and
+  hydraulic systems), the property rules, the Autopush tug configuration
+  and the sound recordings (the SASA CFM56 set, callouts and GPWS voices),
+  in `site/data/fdm/737-8.json` and `site/data/aircraft/737-8`.
+- From its `fde` branch (commit 8c26140): the 3D model and textures
+  (`Models/737-8.ac`), its ALS lights and the Kalmar FB250 pushback tug.
+- `site/js/aircraft/b738m.js` adjusts the flight model as it loads (see the
+  comments there) and does what the project's unfinished Nasal does not yet:
+  brakes, speedbrake, autobrakes, reversers, engine and APU starts.
+- `tools/b737/737-8-web.xml` (the model on the flight model's gear, the tug,
+  lights, spoilers and nose gear retraction) and `tools/b737/b737-sound.xml`
+  are written for this website from the project's files.
+
 ## X-Plane Scenery Gateway
 
 - Website: https://gateway.x-plane.com/

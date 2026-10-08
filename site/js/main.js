@@ -253,7 +253,7 @@ class App {
       cfg = { lat: park.lat, lon: park.lon, headingDeg: park.heading, onGround: true, running: sel.position === "gate",
         parking: park };
     } else {
-      // /sim/airport/runways/start-offset-m: the 747 needs room for its tail.
+      // /sim/airport/runways/start-offset-m: airliners need room for their tails.
       const p = offsetLatLon(rwy.lat, rwy.lon, rwy.heading, ac.runwayOffsetM ?? 15);
       cfg = { lat: p.lat, lon: p.lon, headingDeg: rwy.heading, onGround: true, running: sel.position !== "cold",
         flaps: ac.takeoffFlaps };
@@ -391,6 +391,7 @@ class App {
       this.sim.start(cfg);
       this.def = def;
       document.body.dataset.aircraft = def.id;
+      this.fighterHud.style = def.hud ?? "fighter";
       this.sky.setVisibility(cfg.visibilityM);
       this.speedUp = 1;
       this.paused = false;
@@ -436,7 +437,7 @@ class App {
       if (cfg.parking) this.hud.message("Press ' to talk to ATC: request pushback, then taxi", 8);
       else if (cfg.onGround && cfg.running) this.hud.message("Parking brake set: B releases it, Page Up adds power", 6);
       if (cfg.running && def.id === "f16") this.hud.message("Throttle above 50% is afterburner · g gear up, G gear down", 6);
-      if (cfg.running && def.id === "747" && cfg.onGround && !cfg.parking) this.hud.message("Flaps 20 set for takeoff · rotate at 150 kt · g gear up", 6);
+      if (cfg.running && def.start.tip && cfg.onGround && !cfg.parking) this.hud.message(def.start.tip, 6);
       if (!cfg.running) this.hud.message("Engine off: Shift+S runs the autostart", 6);
       // Handle for the browser tests and for poking around in the console.
       window.__fg = this;
@@ -462,9 +463,9 @@ class App {
     this.hud.message(on ? "Paused (p to resume)" : "Resumed");
   }
 
-  /** The F-16's head-up display ('H'). */
+  /** The F-16's or the 737's head-up display ('H'). */
   toggleFighterHud() {
-    if (this.def?.id !== "f16") return;
+    if (!this.def?.hud) return;
     this.hud.message(this.fighterHud.toggle() ? "HUD on" : "HUD off", 1.2);
   }
 
@@ -600,13 +601,16 @@ class App {
     this.model?.update(dt, this.camera);
     this.updateTug(dt);
     this.routeView.update(dt);
-    if (this.def?.id === "f16" && this.views.view.type === "cockpit" && !this.debugCamera) {
+    if (this.def?.hud && this.views.view.type === "cockpit" && !this.debugCamera) {
       const b = enuBasis(ac.lat, ac.lon);
       const f = this.frame;
       f.dirToRender(b.e, this.enu.e);
       f.dirToRender(b.n, this.enu.n);
       f.dirToRender(b.u, this.enu.u);
-      this.fighterHud.draw(this.camera, this.aircraftGroup.matrix, this.enu, this.sim.props);
+      this.fighterHud.draw(this.camera, this.aircraftGroup.matrix, this.enu, this.sim.props, {
+        flaps: this.controls.flapName(), speedbrake: this.aircraft?.speedbrakeName?.(),
+        autobrake: this.aircraft?.autobrakeName?.(), wheelsFt: this.def.wheelsFt,
+      });
     } else {
       this.fighterHud.clear();
     }
@@ -617,7 +621,10 @@ class App {
     this.sky.update(this.frame, this.camera, this.sim.date);
     this.lights.update(this.time);
     sceneryUniforms.time.value = this.time;
-    this.hud.update(dt, this.sim.props, { view: info.name, aircraft: this.def?.id, flaps: this.controls.flapName() });
+    this.hud.update(dt, this.sim.props, {
+      view: info.name, aircraft: this.def?.id, flaps: this.controls.flapName(),
+      speedbrake: this.aircraft?.speedbrakeName?.(), autobrake: this.aircraft?.autobrakeName?.(),
+    });
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -630,9 +637,12 @@ class App {
     if (Math.hypot(dLat, dLon) < 1200 && agl < 3000 && agl > 200) {
       this.easterEggShown = true;
       // Fighter flyovers open the big games; the tight end spikes one for it.
+      // The airliner's captain gets a cabin announcement instead.
       this.hud.message(this.def?.id === "f16"
         ? "Flyover at Levi's Stadium! 68,500 fans roar and a certain 49ers tight end spikes the ball."
-        : "Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.", 6);
+        : this.def?.id === "737"
+          ? "Captain here: Levi's Stadium off the side, folks. Seat belts fastened low and tight. End of announcement."
+          : "Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.", 6);
     }
   }
 }
