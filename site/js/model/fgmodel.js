@@ -471,6 +471,15 @@ function createAnimation(cfg, root, ctx, model) {
   model.stats.animations++;
 
   switch (type) {
+    case "":
+    case "none":
+    case "null": {
+      // SGGroupAnimation: no animation, just a group of objects under the
+      // animation's name, so later animations can move them together (the
+      // 747's gear legs: "GearNose", "GearBodyLeft", ...).
+      install(root, names, newGroup());
+      return;
+    }
     case "select": {
       const groups = install(root, names, newGroup());
       const c = cond ?? (() => true);

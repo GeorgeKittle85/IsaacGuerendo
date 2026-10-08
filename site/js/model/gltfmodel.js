@@ -124,13 +124,13 @@ export class GLTFAircraftModel {
       if (!node) continue;
       const parent = new THREE.Matrix4().multiplyMatrices(rootInv, node.parent.matrixWorld);
       const dir = new THREE.Vector3(...sh.dir).applyMatrix3(new THREE.Matrix3().setFromMatrix4(parent).invert());
-      this.shifts.push({ ...sh, node, dir, rest: node.position.clone() });
+      this.shifts.push({ ...sh, node, dir, base: node.position.clone() });
     }
 
     this.spins = [];
     for (const w of def.spin ?? []) {
       const node = this.bones.get(nodeName(w.bone));
-      if (node) this.spins.push({ ...w, node, axis: new THREE.Vector3(...w.axis), rest: node.quaternion.clone(), angle: 0 });
+      if (node) this.spins.push({ ...w, node, axis: new THREE.Vector3(...w.axis), base: node.quaternion.clone(), angle: 0 });
     }
     this.extras = def.extras?.(this.root, props) ?? [];
     this.tmpQ = new THREE.Quaternion();
@@ -148,11 +148,16 @@ export class GLTFAircraftModel {
       const v = Math.max(0, Math.min(1, c.value(p)));
       c.action.time = c.t0 + (c.t1 - c.t0) * v;
     }
-    // Shifted and spinning bones start from rest each frame (unless the
-    // gear clip sets them).
-    for (const sh of this.shifts) sh.node.position.copy(sh.rest);
-    for (const w of this.spins) w.node.quaternion.copy(w.rest);
+    // Shifted and spinning bones start each frame from the pose the clips
+    // last gave them (their rest pose if no clip moves them).  The mixer
+    // writes a bone only when the clip's value changes, so going back to
+    // the rest pose here would leave a retracted gear's wheels hanging down
+    // once the gear stops moving.
+    for (const sh of this.shifts) sh.node.position.copy(sh.base);
+    for (const w of this.spins) w.node.quaternion.copy(w.base);
     this.mixer.update(0);
+    for (const sh of this.shifts) sh.base.copy(sh.node.position);
+    for (const w of this.spins) w.base.copy(w.node.quaternion);
     const tq = this.tmpQ;
     for (const b of this.boneAnims) {
       tq.setFromAxisAngle(b.axis, b.angle * b.value(p));
