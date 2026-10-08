@@ -3,7 +3,8 @@
 // ATC (atc.js) with the real flight models.  A scripted pilot follows the
 // clearances: at KSFO it pushes back from a gate, taxis the route Ground
 // gives to the hold short point, gets its takeoff clearance, takes off and
-// is handed to Departure; then it lands back and taxis in to a gate.
+// is handed to NorCal Departure; then it lands back and taxis in to a gate.
+// The 737 also departs Portland (KPDX), handed to Portland Departure.
 //
 // Usage: node tools/atc_test.mjs [--aircraft c172p|f16|747|737] [--verbose]
 import { readFileSync } from "node:fs";
@@ -115,10 +116,31 @@ check(sayTaxiway("F1") === "Foxtrot One" && sayTaxiway("Z") === "Zulu", "taxiway
 check(sayRunway("01L") === "one left" && sayRunway("28R") === "two eight right", "runways read out");
 check(sayFrequency(120.5) === "one two zero point five" && sayFrequency(128.65) === "one two eight point six five", "frequencies read out");
 
+// ---------------------------------------------------- facilities
+
+{
+  // Who you talk to: Ground and Tower by the city, the approach control
+  // that works departures there, and the common frequency without a tower.
+  const atc = new ATC({ airports });
+  for (const [icao, kind, name] of [
+    ["KSFO", "departure", "NorCal Departure"], ["KRHV", "tower", "Reid-Hillview Tower"], ["KHAF", "tower", "Half Moon Bay Traffic"],
+    ["KPDX", "ground", "Portland Ground"], ["KPDX", "departure", "Portland Departure"], ["KHIO", "tower", "Hillsboro Tower"],
+    ["KEUG", "departure", "Cascade Departure"], ["KMFR", "departure", "Cascade Departure"], ["KSLE", "departure", "Seattle Center"],
+    ["KRDM", "departure", "Seattle Center"], ["KPDT", "departure", "Spokane Departure"], ["KLMT", "tower", "Kingsley Tower"],
+    ["KLMT", "departure", "Kingsley Departure"], ["KUAO", "tower", "Aurora Tower"], ["KBDN", "tower", "Bend Traffic"],
+  ]) {
+    const apt = airports.find((a) => a.icao === icao);
+    const st = apt && atc.station(kind, apt, null);
+    check(st?.name === name, `${icao} ${kind}: ${st ? `${st.name}${st.freq ? ` ${st.freq}` : ""}` : "not in airports.json"}`);
+  }
+}
+
 // ------------------------------------------------------- flights
 
 const jsb = await JSBSim.load(createJSBSim, { printErr: () => {} });
-jsb.setGroundProvider(() => ({ elev: ksfo.elevationFt * 0.3048, nE: 0, nN: 0, nU: 1 }));
+const flatGround = (apt) => jsb.setGroundProvider(() => ({ elev: apt.elevationFt * 0.3048, nE: 0, nN: 0, nU: 1 }));
+flatGround(ksfo);
+const PHONETIC = /Alpha|Bravo|Charlie|Delta|Echo|Foxtrot|Golf|Hotel|India|Juliett|Kilo|Lima|Mike|November|Oscar|Papa|Quebec|Romeo|Sierra|Tango|Uniform|Victor|Whiskey|X-ray|Yankee|Zulu/;
 
 /** A scripted pilot taxiing along ATC's route: steer for a point ahead, hold a speed, stop at the hold line. */
 function taxi(atc, def, p, net) {
@@ -146,16 +168,19 @@ function taxi(atc, def, p, net) {
   p.set("/controls/gear/brake-right", brake);
 }
 
-function flight(id) {
+/** A departure from a gate: at {icao, runway, gate, departure (the facility Tower hands over to)}. */
+function flight(id, at = { icao: "KSFO", runway: "28R", departure: "NorCal Departure" }) {
   const def = AIRCRAFT[id];
   const get = (v) => (typeof v === "string" ? read(v) : v);
   const sim = new Simulation(jsb, { fdm: get(def.data.fdm), props: get(def.data.props), rules: get(def.data.rules) }, def.Systems);
-  const net = nets.KSFO;
+  const apt = airports.find((a) => a.icao === at.icao);
+  flatGround(apt);
+  const net = nets[at.icao];
   const spots = net.parkingFor(def.wingspanM);
-  const park = net.parkingByName(def.gate) ?? spots.find((s) => s.pushback >= 0 && s.type === "ga") ?? spots[0];
-  const rwy = ksfo.runways.find((r) => r.id === "28R");
+  const park = net.parkingByName(at.gate ?? def.gate) ?? spots.find((s) => s.pushback >= 0 && s.type === "ga") ?? spots[0];
+  const rwy = apt.runways.find((r) => r.id === at.runway);
   const cfg = { lat: park.lat, lon: park.lon, headingDeg: park.heading, onGround: true, running: true, parking: park,
-    airport: ksfo, runway: rwy, wind: { fromDeg: 280, kt: 8 }, visibilityM: 35000, fuel: 0.75 };
+    airport: apt, runway: rwy, wind: { fromDeg: 280, kt: 8 }, visibilityM: 35000, fuel: 0.75 };
   sim.start(cfg);
   const p = sim.props;
   p.set("/controls/gear/brake-parking", 1);
@@ -188,7 +213,7 @@ function flight(id) {
     }
     return false;
   };
-  console.log(`--- ${id} at KSFO ${park.name} (${park.type})`);
+  console.log(`--- ${id} at ${at.icao} ${park.name} (${park.type})`);
 
   // Pushback.
   const push = atc.options().find((o) => /pushback/.test(o.label));
@@ -206,7 +231,7 @@ function flight(id) {
   atc.options().find((o) => /Request taxi/.test(o.label)).run();
   const clr = radio.findLast((m) => /taxi via/.test(m.text) && !m.pilot);
   check(atc.phase === "taxi-out" && !!atc.route && !!clr, `${id}: ${clr?.text}`);
-  check(/hold short of runway 28R/.test(clr?.text ?? "") && /Foxtrot|Charlie|Quebec|Alpha|Bravo/.test(clr?.speech ?? ""), `${id}: spoken with the phonetic alphabet`);
+  check(clr?.text.includes(`hold short of runway ${at.runway}`) && PHONETIC.test(clr?.speech ?? ""), `${id}: spoken with the phonetic alphabet`);
   p.set("/controls/gear/brake-parking", 0);
   const t0 = t;
   const held = run(900, () => taxi(atc, def, p, net), () => atc.phase === "holding");
@@ -220,7 +245,7 @@ function flight(id) {
   check(atc.phase === "cleared" && said(/cleared for takeoff/), `${id}: cleared for takeoff`);
   if (def.flaps) p.set("/controls/flight/flaps", def.flaps);
   // Line up, then full power along the runway.
-  const rw = net.runway("28R");
+  const rw = net.runway(at.runway);
   let airborne = false;
   const tTake = t;
   run(400, () => {
@@ -244,7 +269,7 @@ function flight(id) {
       console.log(`     t=${t.toFixed(0)} gs=${w.gsKt.toFixed(0)} hdg=${w.heading.toFixed(0)} along=${c.along.toFixed(0)} across=${c.across.toFixed(0)} agl=${w.agl.toFixed(0)} err=${err.toFixed(0)}`);
     }
   }, () => atc.phase === "airborne");
-  check(airborne && atc.phase === "airborne" && said(/contact NorCal Departure/), `${id}: airborne ${(t - tTake).toFixed(0)} s after the clearance, over to NorCal Departure`);
+  check(airborne && atc.phase === "airborne" && said(new RegExp(`contact ${at.departure}`)), `${id}: airborne ${(t - tTake).toFixed(0)} s after the clearance, over to ${at.departure}`);
   check(!sim.fdm.crashed, `${id}: no crash`);
   return { radio };
 }
@@ -254,6 +279,7 @@ function arrival(id) {
   const def = AIRCRAFT[id];
   const get = (v) => (typeof v === "string" ? read(v) : v);
   const sim = new Simulation(jsb, { fdm: get(def.data.fdm), props: get(def.data.props), rules: get(def.data.rules) }, def.Systems);
+  flatGround(ksfo);
   const net = nets.KSFO;
   const r28 = net.runway("28R");
   const at = net.latlon(r28.x + r28.ux * 2400, r28.y + r28.uy * 2400);
@@ -301,11 +327,13 @@ function arrival(id) {
 
 const only = arg("--aircraft", null);
 for (const id of only ? [only] : ["c172p", "747", "737", "f16"]) flight(id);
+if (!only || only === "737") flight("737", { icao: "KPDX", runway: "28L", gate: "C5", departure: "Portland Departure" });
 for (const id of only ? [only] : ["c172p", "747", "737"]) arrival(id);
 
 // The pushback tug alone, cold and dark, at a gate each airliner fits.
 for (const [id, gate] of [["747", "G98"], ["737", "F72"]]) {
   if (only && only !== id) continue;
+  flatGround(ksfo);
   const def = AIRCRAFT[id];
   const sim = new Simulation(jsb, { fdm: read(def.data.fdm), props: read(def.data.props), rules: read(def.data.rules) }, def.Systems);
   const g = nets.KSFO.parkingByName(gate);

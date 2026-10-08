@@ -199,7 +199,11 @@ function rayTriangle(o, d, m, t) {
 
 /** Everything a tile needs that is expensive to compute: runs in the worker. */
 export function prepareTile(buf) {
-  const data = decodeTile(buf);
+  return prepareData(decodeTile(buf));
+}
+
+/** prepareTile() for tile data that is already decoded (or generated: ocean tiles). */
+export function prepareData(data) {
   const meshes = [];
   const t = data.terrain;
   let normals = null;

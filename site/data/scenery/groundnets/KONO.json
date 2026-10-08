@@ -1,0 +1,1 @@
+{"icao":"KONO","frequencies":{"atis":135.27,"unicom":122.8},"names":[],"nodes":[[44.022606,-117.012642]],"edges":[],"parking":[[0,"LOC","gate",0.0,44.0,-1]],"sources":{"groundnet":"TerraSync Airports/K/O/N/KONO.groundnet.xml","gateway":"X-Plane Scenery Gateway scenery 63468","graph":null,"parking":"groundnet"}}

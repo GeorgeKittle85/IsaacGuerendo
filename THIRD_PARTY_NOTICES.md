@@ -31,7 +31,8 @@ Included or converted from FlightGear 2024.1:
 - The airport database (`Airports/apt.dat.gz`).
 - The star catalogue (`Astro/stars.gz`, from the Yale Bright Star Catalogue).
 - Shared and static scenery models from TerraSync (`Models/`, `Objects/`),
-  and World Scenery 2.0 terrain (`Terrain/`) for 37–38°N, 121–123°W. These
+  and World Scenery 2.0 terrain (`Terrain/`) for the San Francisco Bay Area
+  (37–38°N, 121–123°W) and Oregon (the state and 20 km around it). These
   are the work of the FlightGear scenery contributors
   (https://scenery.flightgear.org/).
 - JavaScript ports of FlightGear code and scripts:
@@ -83,6 +84,15 @@ Used by `tools/build_groundnets.py` (the scenery ids are in each
 `site/data/scenery/groundnets/*.json`): taxiway names for FlightGear's
 ground networks, and the ATC taxi routes and ramp starts of the airports
 TerraSync has no ground network for.
+
+## US Census Bureau
+
+- Website: https://www.census.gov/geographies/mapping-files/time-series/geo/carto-boundary-file.html
+- License: public domain (a work of the US federal government)
+
+Oregon's boundary in `tools/regions.json`, which picks the Oregon scenery
+tiles and airports, is simplified from the 2023 cartographic boundary file
+`cb_2023_us_state_20m`.
 
 ## SimGear
 

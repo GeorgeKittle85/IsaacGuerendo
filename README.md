@@ -3,9 +3,10 @@
 FlightGear's flight simulation running in a web browser. The JSBSim flight
 dynamics engine, FlightGear's default flight model, is compiled to
 WebAssembly. It flies FlightGear's Cessna 172P, an F-16 Fighting Falcon,
-FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over FlightGear's own San
-Francisco Bay Area scenery, rendered with three.js. Start at a gate, have a tug push you back,
-and taxi out the way the ground controller tells you.
+FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over FlightGear's own
+scenery of the San Francisco Bay Area and the whole state of Oregon,
+rendered with three.js. Start at a gate, have a tug push you back, and taxi
+out the way the ground controller tells you.
 
 The whole thing is a static website with no server-side code. It can be
 hosted on GitHub Pages or any web server.
@@ -81,16 +82,21 @@ hosted on GitHub Pages or any web server.
 - **Gates, pushback and ATC.** Choose **At a gate** in the start menu.
   - Gates and parking spots come from FlightGear's ground networks
     (TerraSync's `groundnet.xml`): 209 at San Francisco, and others at
-    Oakland, San Jose and more Bay Area airports. The menu lists the ones
-    big enough for the aircraft.
+    Oakland, San Jose and more Bay Area airports; 81 at Portland, and
+    others at Eugene, Medford, Redmond, Salem, Bend and 60 more Oregon
+    airports. The menu lists the ones big enough for the aircraft.
   - **Pushback:** a port of FlightGear's Autopush. The tug follows the
     gate's pushback route from the ground network, holding a walking pace
     and steering the nose wheel. The 747 is pushed by FlightGear's Goldhofer
     tug, the 737 by its Kalmar tug, the F-16 by its military tug (which
     drives in first), the Cessna by ground crew with its own towbar.
-  - **ATC:** press **'** (as in FlightGear) to talk to San Francisco Ground,
-    Tower and NorCal Departure. Ground clears you to the runway through
-    named taxiways, with runway crossings and the hold short point:
+  - **ATC:** press **'** (as in FlightGear) to talk to the airport's Ground
+    and Tower, then Departure: NorCal Departure in the Bay Area; Portland
+    Departure, Cascade Departure (Eugene, Medford), Kingsley Departure
+    (Klamath Falls), Spokane Departure (Pendleton) or Seattle Center in
+    Oregon. At airports without a tower you talk to the traffic on the
+    common frequency ("Bend Traffic"). Ground clears you to the runway
+    through named taxiways, with runway crossings and the hold short point:
     *"runway 28R, taxi via F, Q, C, cross runways 19R, 19L and 28L, hold
     short of runway 28R."* The route is drawn on the ground as a green
     line with a red bar at the hold short point, and Ground gives
@@ -106,12 +112,25 @@ hosted on GitHub Pages or any web server.
     Gateway (GPL), whose named ATC taxi routes are matched to FlightGear's
     taxiways. Where TerraSync has no ground network, the Gateway's routes
     and ramp starts are used, if its runways match FlightGear's.
-- **Scenery.** FlightGear World Scenery 2.0 for 37–38°N, 121–123°W, with
-  FlightGear's regional materials.
+- **Scenery.** FlightGear World Scenery 2.0 for two regions, picked in the
+  start menu (`tools/regions.json`):
+  - the San Francisco Bay Area: 37–38°N, 121–123°W;
+  - Oregon: the whole state, from the coast over the Coast Range, the
+    Willamette Valley and the Cascades (Mount Hood, the Three Sisters,
+    Crater Lake) to the high desert and the Blue and Wallowa Mountains,
+    plus 20 km past the state line, so Vancouver across the Columbia is
+    there when you leave Portland.
+  - The terrain uses FlightGear's regional materials; the start menu lists
+    each region's airports whose runways the scenery has, with a control
+    tower or without.
+  - The open sea, which TerraSync leaves out, is filled in at sea level the
+    way FlightGear does it (its ocean tiles).
   - Runways and markings, plus runway, taxiway and approach lighting
     (PAPI, REIL, sequenced flashers).
   - TerraSync scenery objects: the Golden Gate and Bay Bridges, downtown
-    San Francisco, the SFO and Oakland terminals, and more.
+    San Francisco, the SFO and Oakland terminals; Portland's airport
+    terminal and tower, downtown Portland's towers, the Tillamook Air
+    Museum's blimp hangar; and more.
 - **Sky.** The sun is placed from the real date and time, and the night sky
   uses FlightGear's star catalogue. Haze follows the visibility setting.
 - **Sound.** The c172p's FlightGear sound configuration (engine, wind,
@@ -144,6 +163,8 @@ URL parameters skip the start menu, for example:
 | Parameter | Values |
 | --- | --- |
 | `aircraft` | `c172p` (default), `f16`, `747`, `737` |
+| `airport` | an airport's ICAO code, e.g. `KSFO`, `KPDX`, `KEUG` |
+| `region` | `sfbay` or `oregon`: start at the region's main airport (KSFO, KPDX) |
 | `position` | `runway`, `cold` (runway, engine off), `gate`, `gate-cold` (at a gate, engines off), `final` (3 nm final), `air` (3000 ft above the airport) |
 | `gate` | a gate or parking spot, e.g. `D55` (implies `position=gate`) |
 | `time` | `morning`, `noon`, `afternoon`, `dusk`, `evening`, `midnight`, `now` |
@@ -251,6 +272,7 @@ taxi to the gate**.
 | `site/js/sound` | Aircraft sound (SimGear's XML sound system on Web Audio) |
 | `site/js/app` | User interface: controls, input, touch controls, views, menu, flight data strip, radio |
 | `wasm/` | JSBSim WebAssembly build script, C++ bridge and patch |
+| `tools/regions.json` | The scenery regions: the Bay Area's buckets, Oregon's boundary (`tools/regions.py` turns them into tiles and airports) |
 | `tools/` | Data conversion pipeline and tests (`tools/f16/`: the F-16's sound configuration; `tools/b737/`: the 737's model wrapper and sound configuration) |
 
 ## Rebuilding the data
@@ -270,7 +292,8 @@ tools/build_all.sh FG_ROOT build/terrasync
 ```
 
 This downloads the needed TerraSync scenery (terrain, objects and shared
-models, checked against TerraSync's SHA-1 indexes) and converts:
+models, checked against TerraSync's SHA-1 indexes) for the regions in
+`tools/regions.json` and converts:
 
 - the aircraft: flight model, properties, rules, 3D model, sounds
 - the scenery: tiles, airports and objects
@@ -312,8 +335,16 @@ The ground networks (gates, pushback routes, taxiways) come from TerraSync,
 with taxiway names from the X-Plane Scenery Gateway:
 
 ```sh
-python3 tools/build_groundnets.py --scenery site/data/scenery --cache build/groundnets
+python3 tools/build_groundnets.py --scenery site/data/scenery --cache build/groundnets [--region oregon]
 ```
+
+A region is either whole 1x1 degree buckets or a boundary polygon with a
+margin (see `tools/regions.py`). To add one, put it at the end of
+`tools/regions.json` (the earlier regions' tiles then keep their material
+numbers and stay byte-identical), list its TerraSync paths with
+`python3 tools/regions.py --paths ID`, and run the steps of
+`tools/build_all.sh` from `build_scenery.py` on. The ATC's departure
+facilities and controller city names are in `site/js/atc/atc.js`.
 
 To rebuild the flight model itself, install the
 [Emscripten SDK](https://emscripten.org/docs/getting_started/downloads.html)
@@ -328,22 +359,24 @@ wasm/build.sh build/wasm
 
 ```sh
 npm test                  # flight model smoke test, Nasal translator and ground operations tests (Node only)
-npm install && npm run test:e2e -- --chromium /path/to/chrome [--aircraft f16|747|737] [--runway 10L] [--gate D55]
+npm install && npm run test:e2e -- --chromium /path/to/chrome [--aircraft f16|747|737] [--airport KPDX] [--runway 10L] [--gate D55]
 ```
 
 The smoke test flies takeoffs with the WebAssembly JSBSim, the c172p, the
 F-16, the 747 and the 737 (with the gear coming up), checks the climbs, and
 starts the F-16's, the 747's and the 737's engines from cold; the 737 also
 rejects a takeoff and lands from a 3 nm final on its autobrakes. The ground operations test
-routes every airport's taxiways, then flies each aircraft through a whole
-departure from a San Francisco gate: pushback, Ground's taxi clearance,
-taxiing the route to the hold short point, the takeoff clearance and the
-handoff to Departure; and an arrival: landing clearance, taxi in and
-parking at a gate. The end-to-end test loads the site in headless
-Chromium, takes off from San Francisco in the chosen aircraft (on runway
-28R, or `--runway`), checks it stands on the runway and that its model's
-gear retracts, and saves screenshots; with `--gate`, it starts at that gate,
-pushes back with the tug and gets a taxi clearance instead.
+routes every airport's taxiways and checks who the controllers are (Bay
+Area and Oregon), then flies each aircraft through a whole departure from
+a San Francisco gate: pushback, Ground's taxi clearance, taxiing the route
+to the hold short point, the takeoff clearance and the handoff to
+Departure; the 737 does it again from Portland's gate C5. Then an arrival:
+landing clearance, taxi in and parking at a gate. The end-to-end test
+loads the site in headless Chromium, takes off from San Francisco in the
+chosen aircraft (on runway 28R, or `--airport` and `--runway`), checks it
+stands on the runway and that its model's gear retracts, and saves
+screenshots; with `--gate`, it starts at that gate, pushes back with the
+tug and gets a taxi clearance instead.
 
 ## Credits and licenses
 
@@ -363,6 +396,8 @@ projects:
   Merspieler (GPL-2.0).
 - The X-Plane Scenery Gateway's airport data, for taxiway names
   (GPL-2.0-or-later).
+- The US Census Bureau's state boundaries, for Oregon's outline (public
+  domain).
 - [JSBSim](https://github.com/JSBSim-Team/jsbsim) (LGPL-2.1-or-later), and
   its F-16 flight model by Erik Hofman (GPL).
 - Sounds from FlightGear's F-16

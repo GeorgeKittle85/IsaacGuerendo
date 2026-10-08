@@ -144,7 +144,7 @@ def main():
     args = ap.parse_args()
     server = args.server if args.server.endswith("/") else args.server + "/"
     index = json.load(open(os.path.join(args.scenery, "index.json")))
-    shared = sorted({o["path"] for t in index["tiles"] for o in t["objects"] if o["kind"] == "shared"})
+    shared = sorted({o["path"] for t in index["tiles"] for o in t.get("objects", []) if o["kind"] == "shared"})
     f = Fetcher(server, args.dest, args.fgdata)
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
         list(pool.map(f.model, shared))

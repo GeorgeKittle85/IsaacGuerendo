@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>FlightGear Web</title>
-  <meta name="description" content="FlightGear in the browser: the JSBSim flight model compiled to WebAssembly flies FlightGear's Cessna 172P, an F-16 Fighting Falcon, FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over FlightGear's San Francisco Bay Area scenery, with gate starts, pushback and ATC taxi instructions.">
+  <meta name="description" content="FlightGear in the browser: the JSBSim flight model compiled to WebAssembly flies FlightGear's Cessna 172P, an F-16 Fighting Falcon, FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over FlightGear's scenery of the San Francisco Bay Area and Oregon, with gate starts, pushback and ATC taxi instructions.">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%233b82f6' d='M16 2l3 10 11 4-11 3-3 11-3-11-11-3 11-4z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="css/style.css">
   <script type="importmap">{ "imports": { "three": "./vendor/three.module.min.js" } }</script>
@@ -64,13 +64,16 @@
     <form class="panel" id="menu-form" autocomplete="off">
       <header>
         <h1>FlightGear <span>Web</span></h1>
-        <p class="lede">The JSBSim flight model compiled to WebAssembly, over FlightGear's own San Francisco Bay Area scenery.</p>
+        <p class="lede">The JSBSim flight model compiled to WebAssembly, over FlightGear's own scenery of the San Francisco Bay Area and Oregon.</p>
       </header>
       <div class="grid">
         <fieldset class="span2 ac-picker">
           <legend>Aircraft</legend>
           <div id="m-aircraft-cards" class="ac-cards"></div>
         </fieldset>
+        <label class="span2" id="m-region-row">Region
+          <select id="m-region"></select>
+        </label>
         <label>Airport
           <select id="m-airport"></select>
         </label>

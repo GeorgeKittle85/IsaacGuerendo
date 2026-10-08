@@ -38,7 +38,7 @@ def main():
     refs = {}
     missing = set()
     for tile in index["tiles"]:
-        for o in tile["objects"]:
+        for o in tile.get("objects", []):
             if o["kind"] == "sign":
                 continue
             ref = object_ref(tile, o)

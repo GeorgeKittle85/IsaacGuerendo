@@ -1,6 +1,7 @@
-// The AI air traffic controller: San Francisco Ground, Tower and NorCal
-// Departure for the airport you start at, in the spirit of FlightGear's
-// ATC (src/ATC, which clears AI traffic along the same ground networks).
+// The AI air traffic controller: Ground, Tower and Departure for the airport
+// you start at (San Francisco Ground, Tower and NorCal Departure; Portland
+// Ground, Tower and Portland Departure), in the spirit of FlightGear's ATC
+// (src/ATC, which clears AI traffic along the same ground networks).
 //
 // It follows the flight through phases and offers what a pilot would ask
 // for at each (the ' key opens the menu, as FlightGear's ATC dialog):
@@ -33,10 +34,33 @@ const CITY = {
   KSFO: "San Francisco", KOAK: "Oakland", KSJC: "San Jose", KHWD: "Hayward", KLVK: "Livermore",
   KCCR: "Concord", KNUQ: "Moffett", KPAO: "Palo Alto", KSQL: "San Carlos", KHAF: "Half Moon Bay",
   KSCK: "Stockton", KRHV: "Reid-Hillview", E16: "San Martin", KTCY: "Tracy", C83: "Byron",
+  KPDX: "Portland", KHIO: "Hillsboro", KTTD: "Troutdale", KUAO: "Aurora", KVUO: "Pearson", KSPB: "Scappoose",
+  KSLE: "Salem", KEUG: "Eugene", KMFR: "Medford", KRDM: "Redmond", KBDN: "Bend", KLMT: "Kingsley",
+  KPDT: "Pendleton", KOTH: "North Bend", KAST: "Astoria", KONP: "Newport", KCVO: "Corvallis",
+  KALW: "Walla Walla",
 };
+
+/**
+ * Who takes a departure off the Tower's hands: the approach control within
+ * reach of the airport (nm), else the region's centre.  From the FAA's chart
+ * supplement (via AirNav, 2026).
+ */
+const DEPARTURE = [
+  { name: "NorCal Departure", lat: 37.62, lon: -122.37, nm: 90 },
+  { name: "Portland Departure", lat: 45.589, lon: -122.597, nm: 35 },
+  { name: "Cascade Departure", lat: 44.125, lon: -123.212, nm: 30 }, // Eugene
+  { name: "Cascade Departure", lat: 42.374, lon: -122.874, nm: 30 }, // Medford
+  { name: "Kingsley Departure", lat: 42.156, lon: -121.733, nm: 25 }, // Klamath Falls
+  { name: "Spokane Departure", lat: 45.695, lon: -118.841, nm: 25 }, // Pendleton
+  { name: "Spokane Departure", lat: 46.095, lon: -118.288, nm: 20 }, // Walla Walla
+];
+const CENTER = { oregon: "Seattle Center" };
 const COMPASS = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"];
 
 const wrap360 = (a) => ((a % 360) + 360) % 360;
+
+/** Whether the airport has a control tower (a tower frequency; older data: a tower position). */
+const towered = (apt) => (apt?.towered ?? !!apt?.tower);
 
 export class ATC {
   /**
@@ -90,20 +114,28 @@ export class ATC {
   }
 
   city(apt = this.airport) {
-    return CITY[apt.icao] ?? apt.name.replace(/\b(Intl|International|Muni|Municipal|Executive|Field|Airport|Metropolitan|Metro)\b/gi, "").trim();
+    if (CITY[apt.icao]) return CITY[apt.icao];
+    const name = apt.name.replace(/\b(Intl|International|Muni|Municipal|Executive|Field|Fld|Airfield|Airport|Arpt|Airpark|Metropolitan|Metro|Regional|Rgnl|State)\b/gi, "")
+      .replace(/\s+/g, " ").trim() || apt.icao;
+    // apt.dat has many names in capitals: "BEND MUNI" is Bend Traffic.
+    return name === name.toUpperCase() ? name.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()) : name;
   }
 
   get towered() {
-    return !!this.airport?.tower;
+    return towered(this.airport);
   }
 
   /** {name, freq} of a facility: ground, tower, departure. */
   station(kind, apt = this.airport, net = this.net) {
-    const f = net?.icao === apt.icao ? net.frequencies : {};
-    if (!apt.tower) return { name: `${this.city(apt)} Traffic`, freq: f.unicom ?? 122.8 };
+    // The ground network's frequencies first, then apt.dat's.
+    const f = { ...apt.frequencies, ...(net?.icao === apt.icao ? net.frequencies : {}) };
+    if (!towered(apt)) return { name: `${this.city(apt)} Traffic`, freq: f.unicom ?? 122.8 };
     if (kind === "ground") return { name: `${this.city(apt)} Ground`, freq: f.ground };
     if (kind === "tower") return { name: `${this.city(apt)} Tower`, freq: f.tower };
-    return { name: "NorCal Departure", freq: f.departure ?? f.approach };
+    const r = apt.runways[0];
+    const near = DEPARTURE.find((d) => Math.hypot(d.lat - r.lat, (d.lon - r.lon) * Math.cos(r.lat * D2R)) * 60 <= d.nm);
+    const name = near?.name ?? CENTER[apt.region] ?? "Departure";
+    return { name, freq: f.departure ?? f.approach };
   }
 
   /** Aircraft position on the airport's local plane, heading, speed. */
@@ -216,7 +248,7 @@ export class ATC {
     let best = null, bestD = Infinity;
     for (const a of this.app.airports) {
       const d = Math.hypot(a.runways[0].lat - w.lat, (a.runways[0].lon - w.lon) * Math.cos(w.lat * D2R)) * 60;
-      const score = d - (a.tower ? 10 : 0);
+      const score = d - (towered(a) ? 10 : 0);
       if (d < 40 && score < bestD) { bestD = score; best = a; }
     }
     return best;
@@ -353,7 +385,7 @@ export class ATC {
     this.landingRunway = rwy.id;
     this.pilot(`${tower.name}, ${this.callsign.text}, inbound for landing.`);
     const wind = this.wind();
-    if (apt.tower) {
+    if (towered(apt)) {
       this.say("tower", `${wind.text}, runway ${rwy.id}, cleared to land.`, `${wind.say}, runway ${sayRunway(rwy.id)}, cleared to land.`, apt);
       this.pilot(`Cleared to land runway ${rwy.id}, ${this.callsign.text}.`);
     } else {
@@ -417,7 +449,7 @@ export class ATC {
         if (!w.wow && w.agl > 1000 && this.towered) {
           const dep = this.station("departure");
           this.say("tower", `contact ${dep.name}${this.freqText(dep)}, good day.`, `contact ${dep.name}${this.freqSay(dep)}, good day.`);
-          this.pilot(`Over to Departure, ${this.callsign.text}, good day.`);
+          this.pilot(`Over to ${dep.name.endsWith("Center") ? "Center" : "Departure"}, ${this.callsign.text}, good day.`);
           this.app.radio?.setStation(dep);
           this.phase = "airborne";
         } else if (!w.wow && w.agl > 1000) {
@@ -430,7 +462,7 @@ export class ATC {
           this.phase = "landed";
           this.switchAirport(apt);
           const ground = this.station("ground", apt);
-          if (apt.tower) {
+          if (towered(apt)) {
             this.say("tower", `exit the runway when able, contact ground${this.freqText(ground)}.`,
               `exit the runway when able, contact ground${this.freqSay(ground)}.`, apt);
           }

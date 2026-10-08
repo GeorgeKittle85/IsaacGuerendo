@@ -301,6 +301,8 @@ body.muted #btn-sound { text-decoration: line-through; opacity: 0.7; }
   letter-spacing: 0.02em;
 }
 
+#menu label[hidden] { display: none; }
+
 #menu .span2 { grid-column: span 2; }
 
 #menu select, #menu input {

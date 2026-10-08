@@ -9,11 +9,51 @@
 import * as THREE from "three";
 import { enuBasis, geodeticToEcef } from "./geo.js";
 import { createMaterial } from "./materials.js";
-import { fetchGz, prepareTile, CollisionGrid } from "./tiledata.js";
+import { fetchGz, prepareTile, prepareData, CollisionGrid } from "./tiledata.js";
 
 export { decodeTile } from "./tiledata.js";
 
 const FT_PER_M = 1 / 0.3048;
+
+/**
+ * A tile TerraSync leaves out because it is all sea.  FlightGear builds
+ * these as it goes (SGOceanTile, simgear/scene/tgdb/SGOceanTile.cxx): a grid
+ * on the ellipsoid at sea level in the "Ocean" material, whose index the
+ * tile list gives (info.ocean).  The result is decodeTile()'s format.
+ */
+export function oceanTileData(info, steps = 8) {
+  const lat = (info.lat0 + info.lat1) / 2, lon = (info.lon0 + info.lon1) / 2;
+  const center = geodeticToEcef(lat, lon, 0);
+  const { e, n, u } = enuBasis(lat, lon);
+  const pos = new Float32Array((steps + 1) * (steps + 1) * 3);
+  const p = [0, 0, 0];
+  let k = 0;
+  for (let i = 0; i <= steps; i++) {
+    for (let j = 0; j <= steps; j++) {
+      geodeticToEcef(info.lat0 + ((info.lat1 - info.lat0) * i) / steps, info.lon0 + ((info.lon1 - info.lon0) * j) / steps, 0, p);
+      const d0 = p[0] - center[0], d1 = p[1] - center[1], d2 = p[2] - center[2];
+      pos[k++] = e[0] * d0 + e[1] * d1 + e[2] * d2;
+      pos[k++] = n[0] * d0 + n[1] * d1 + n[2] * d2;
+      pos[k++] = u[0] * d0 + u[1] * d1 + u[2] * d2;
+    }
+  }
+  // Rows go north, columns east: counter-clockwise seen from above.
+  const idx = new Uint16Array(steps * steps * 6);
+  const v = (i, j) => i * (steps + 1) + j;
+  k = 0;
+  for (let i = 0; i < steps; i++) {
+    for (let j = 0; j < steps; j++) {
+      idx.set([v(i, j), v(i, j + 1), v(i + 1, j + 1), v(i, j), v(i + 1, j + 1), v(i + 1, j)], k);
+      k += 6;
+    }
+  }
+  return {
+    center, lat, lon,
+    terrain: { pos, idx, groups: [{ material: info.ocean, start: 0, count: idx.length }] },
+    surface: null,
+    lights: [],
+  };
+}
 
 class Tile {
   /** prep: prepareTile() output {data, normals, grid, zmin, zmax}, usually from the worker. */
@@ -269,7 +309,7 @@ export class SceneryManager {
     if (this.tiles.has(info.id)) return this.tiles.get(info.id);
     if (this.loading.has(info.id)) return this.loading.get(info.id);
     const p = (async () => {
-      const prep = await this.prepare(`${this.baseUrl}/${info.file}`);
+      const prep = info.ocean !== undefined ? prepareData(oceanTileData(info)) : await this.prepare(`${this.baseUrl}/${info.file}`);
       const tile = new Tile(info, prep, this);
       this.tiles.set(info.id, tile);
       this.root.add(tile.group);

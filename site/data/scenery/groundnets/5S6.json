@@ -1,0 +1,1 @@
+{"icao":"5S6","frequencies":{"unicom":122.9},"names":[],"nodes":[[42.8567348,-124.5190737],[42.8580979,-124.5204737],[42.8574029,-124.5199996]],"edges":[],"parking":[[0,"GA A","tie_down",40.2,20,-1],[1,"GA A (2)","tie_down",9.9,20,-1],[2,"GA B","tie_down",247.3,20,-1]],"sources":{"groundnet":null,"gateway":"X-Plane Scenery Gateway scenery 56194","graph":null,"parking":"gateway"}}
