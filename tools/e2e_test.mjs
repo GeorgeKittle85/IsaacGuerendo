@@ -1,16 +1,16 @@
 // End-to-end browser test: serves site/, opens it in headless Chromium, starts
-// on KSFO runway 28R, flies a takeoff through the page's test hook and checks
+// on KSFO runway 28R (or --airport, --runway), flies a takeoff through the page's test hook and checks
 // the climb, then saves screenshots of the cockpit and chase views.  It also
 // checks the aircraft stands on the scenery's runway at the start and that
 // its 3D model's gear goes away when the gear comes up.
 //
-// With --gate, it starts at that KSFO gate instead and works the ground
+// With --gate, it starts at that gate instead and works the ground
 // side: the ATC menu (' key), a pushback by the tug, and Ground's taxi
 // clearance with the route drawn on the ground.
 //
 // Usage:
 //   npm install            (playwright-core)
-//   node tools/e2e_test.mjs [--aircraft c172p|f16|747|737] [--runway 28R] [--gate D55] [--out build/e2e] [--chromium /path/to/chrome]
+//   node tools/e2e_test.mjs [--aircraft c172p|f16|747|737] [--airport KSFO] [--runway 28R] [--gate D55] [--out build/e2e] [--chromium /path/to/chrome]
 //
 // Without a GPU, Chromium renders with SwiftShader: it is slow but works.
 
@@ -30,7 +30,8 @@ const outDir = arg("--out", path.join(here, "../build/e2e"));
 const executablePath = arg("--chromium", process.env.CHROMIUM || undefined);
 const aircraft = arg("--aircraft", "c172p");
 const gate = arg("--gate", null);
-const runway = arg("--runway", "28R");
+const airport = arg("--airport", "KSFO").toUpperCase();
+const runway = arg("--runway", airport === "KSFO" ? "28R" : null);
 // Takeoff: rotate speed and climb attitude, and the climb speeds to expect.
 const TAKEOFF = {
   c172p: { rotateKt: 55, pitch: 8, gain: 0.06, ias: [60, 100], restAgl: 10 },
@@ -82,7 +83,7 @@ const check = (cond, msg) => {
 /** At a gate: ATC menu, pushback, taxi clearance. */
 async function gateScenario() {
   const t0 = Date.now();
-  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=28R&position=gate&gate=${encodeURIComponent(gate)}&time=afternoon&wind=280@8&range=15`);
+  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=${airport}${runway ? `&runway=${runway}` : ""}&position=gate&gate=${encodeURIComponent(gate)}&time=afternoon&wind=280@8&range=15`);
   await page.waitForFunction(() => window.__fg?.flying === true, null, { timeout: 300000, polling: 500 });
   check(true, `simulator running after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const at = await page.evaluate(() => ({ phase: window.__fg.atc.phase, park: window.__fg.atc.parking?.name,
@@ -144,10 +145,10 @@ function gearProbe(name) {
   }, name);
 }
 
-/** On a KSFO runway (28R unless --runway): a takeoff and climb. */
+/** On a runway (KSFO 28R unless --airport/--runway): a takeoff and climb. */
 async function takeoffScenario() {
   const t0 = Date.now();
-  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=${runway}&time=afternoon&wind=280@8`);
+  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=${airport}${runway ? `&runway=${runway}` : ""}&time=afternoon&wind=280@8`);
   await page.waitForFunction(() => window.__fg?.flying === true, null, { timeout: 300000, polling: 500 });
   check(true, `simulator running after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const start = await page.evaluate(() => {
@@ -162,7 +163,7 @@ async function takeoffScenario() {
       gnd: p.get("/position/ground-elev-m"), alt: p.get("/position/altitude-ft") * 0.3048 };
   });
   check(ground.elev !== null && ground.alt - ground.elev > 0 && ground.alt - ground.elev < TAKEOFF.restAgl * 0.3048 + 2,
-    `standing on the runway ${runway}: reference point ${(ground.alt - (ground.elev ?? 0)).toFixed(2)} m above the scenery`);
+    `standing on ${airport} runway ${runway ?? "(the active one)"}: reference point ${(ground.alt - (ground.elev ?? 0)).toFixed(2)} m above the scenery`);
   const gearDown = GEAR_PROBE && await gearProbe(GEAR_PROBE);
   if (GEAR_PROBE) check(gearDown?.visible, `model gear (${GEAR_PROBE}) down at the start`);
   check(start.park === 1, "parking brake set at the start");

@@ -1,22 +1,26 @@
 #!/usr/bin/env python3
 """Convert FlightGear World Scenery 2.0 terrain into compact web tiles.
 
-For every tile in the requested 1x1 degree buckets this reads the tile's
-.stg file, its base BTG and the airport BTGs it includes, resolves every
-material with FlightGear's regional material library, and writes:
+For every tile of the requested regions this reads the tile's .stg file,
+its base BTG and the airport BTGs it includes, resolves every material with
+FlightGear's regional material library, and writes:
 
   site/data/scenery/tiles/<index>.bin.gz   geometry in a local east/north/up
                                            frame (see site/js/scene/tiles.js)
-  site/data/scenery/index.json             tile list + material table
+  site/data/scenery/index.json             tile list + material table; the
+                                           all-sea tiles TerraSync leaves out
+                                           are listed for the site to generate
   site/data/scenery/textures/*.webp        the terrain/runway textures used
 
 Land-cover materials get texture coordinates in the shader from world
 position (FlightGear's xsize/ysize in metres), runway and marking materials
 keep the BTG's own texture coordinates.
 
+The tiles are those of the regions in tools/regions.json (see regions.py),
+or of the 1x1 degree buckets given with --bucket.
+
 Example:
-    python3 tools/build_scenery.py --fgdata FG_ROOT --terrasync CACHE \
-        --bucket w123n37 --bucket w122n37 --out site/data/scenery
+    python3 tools/build_scenery.py --fgdata FG_ROOT --terrasync CACHE --out site/data/scenery
 """
 
 import argparse
@@ -34,6 +38,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(__file__))
 from btg import SG_POINTS, read_btg  # noqa: E402
 from fgmaterials import MaterialLib  # noqa: E402
+import regions  # noqa: E402
+from regions import bucket_bounds  # noqa: E402
 from textures import convert_texture  # noqa: E402
 
 WGS84_A = 6378137.0
@@ -61,30 +67,6 @@ def enu_matrix(lat_deg, lon_deg):
         [-sla * clo, -sla * slo, cla],
         [cla * clo, cla * slo, sla],
     ])
-
-
-def bucket_span(lat):
-    """SGBucket longitude span in degrees for a latitude (newbucket.cxx)."""
-    a = abs(lat)
-    if a >= 89: return 12.0
-    if a >= 86: return 4.0
-    if a >= 83: return 2.0
-    if a >= 76: return 1.0
-    if a >= 62: return 0.5
-    if a >= 22: return 0.25
-    return 0.125
-
-
-def bucket_bounds(index):
-    """Decodes an SGBucket index into (lat0, lon0, lat1, lon1)."""
-    lon = (index >> 14) - 180
-    lat = ((index >> 6) & 0xFF) - 90
-    y = (index >> 3) & 0x7
-    x = index & 0x7
-    span = bucket_span(lat + 0.0625 + y / 8.0)
-    lat0 = lat + y / 8.0
-    lon0 = lon + x * span
-    return lat0, lon0, lat0 + 0.125, lon0 + span
 
 
 def parse_stg(path):
@@ -363,6 +345,8 @@ def build_tile(stg_path, bucket_dir, mats, out_dir):
         "id": index, "file": f"tiles/{index}.bin.gz", "lat0": lat0, "lon0": lon0, "lat1": lat1, "lon1": lon1,
         "center": [clat, clon, calt], "minZ": zmin, "maxZ": zmax,
         "triangles": tri_count, "bytes": os.path.getsize(out), "objects": objects,
+        # The airports whose runways and taxiways this tile carries (their BTGs).
+        **({"airports": [n.split(".")[0] for n in airport_names]} if airport_names else {}),
     }
 
 
@@ -370,24 +354,38 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fgdata", required=True)
     ap.add_argument("--terrasync", required=True)
-    ap.add_argument("--bucket", action="append", required=True, help="e.g. w123n37")
+    ap.add_argument("--region", action="append", default=[],
+                    help="a region of tools/regions.json, e.g. oregon (default: all of them, in order)")
+    ap.add_argument("--bucket", action="append", default=[], help="whole 1x1 degree buckets instead, e.g. w123n37")
     ap.add_argument("--out", required=True)
     ap.add_argument("--only", type=int, action="append", help="build only these tile indices")
     args = ap.parse_args()
 
+    # (region id, bucket, the bucket's tiles to build): regions in their
+    # order, so the first one's tiles keep their material indices when more
+    # regions are added.
+    work = [(None, regions.parse_bucket(b), set(regions.bucket_tiles(*regions.parse_bucket(b)))) for b in args.bucket]
+    if not args.bucket:
+        for r in regions.by_id(args.region):
+            wanted = set(r.tiles())
+            work += [(r.id, b, wanted) for b in r.buckets()]
+
     lib = MaterialLib(args.fgdata)
     mats = MaterialTable(lib, args.fgdata, os.path.join(args.out, "textures"))
     tiles = []
-    for b in args.bucket:
-        m = re.match(r"([ew])(\d+)([ns])(\d+)", b)
-        lon10 = int(m.group(2)) * (-1 if m.group(1) == "w" else 1)
-        lat10 = int(m.group(4)) * (-1 if m.group(3) == "s" else 1)
-        top = f"{'w' if lon10 < 0 else 'e'}{abs(math.floor(lon10 / 10) * 10):03d}{'s' if lat10 < 0 else 'n'}{abs(math.floor(lat10 / 10) * 10):02d}"
+    built = set()
+    ocean = []  # (region, tile index): no tile on TerraSync, so all sea
+    for region, (lon, lat), wanted in work:
+        top, b = regions.top_dir(lon, lat), regions.bucket_name(lon, lat)
         bdir = os.path.join(args.terrasync, "Terrain", top, b)
-        for stg in sorted(os.listdir(bdir)):
+        present = {int(n.split(".")[0]) for n in os.listdir(bdir) if n.endswith(".stg")} if os.path.isdir(bdir) else set()
+        ocean += [(region, t) for t in sorted(set(regions.bucket_tiles(lon, lat)) & wanted - present)
+                  if not args.only or t in args.only]
+        for stg in sorted(os.listdir(bdir) if present else []):
             if not stg.endswith(".stg"):
                 continue
-            if args.only and int(stg.split(".")[0]) not in args.only:
+            index = int(stg.split(".")[0])
+            if (args.only and index not in args.only) or index not in wanted or index in built:
                 continue
             t = build_tile(os.path.join(bdir, stg), bdir, mats, os.path.join(args.out, "tiles"))
             if t:
@@ -395,14 +393,31 @@ def main():
                 if os.path.isfile(objs):
                     t["objects"] += parse_stg(objs)[2]
                 t["objectsDir"] = f"Objects/{top}/{b}"
+                if region:
+                    t["region"] = region
                 tiles.append(t)
+                built.add(index)
                 print(f"tile {t['id']}: {t['triangles']} triangles, {t['bytes'] / 1e6:.2f} MB, "
                       f"{len(t['objects'])} objects", flush=True)
+
+    # The client builds ocean tiles itself, like FlightGear's SGOceanTile; the
+    # list gives their material.  After the land tiles, so they keep their
+    # material numbers.
+    for region, t in ocean:
+        if t in built:
+            continue
+        lat0, lon0, lat1, lon1 = bucket_bounds(t)
+        mi, _desc = mats.get("Ocean", (lon0 + lon1) / 2, (lat0 + lat1) / 2)
+        tiles.append({"id": t, "lat0": lat0, "lon0": lon0, "lat1": lat1, "lon1": lon1, "ocean": mi,
+                      **({"region": region} if region else {})})
+        built.add(t)
+    if ocean:
+        print(f"{sum(1 for t in tiles if 'ocean' in t)} ocean tiles")
 
     index = {"version": 1, "tiles": tiles, "materials": mats.entries}
     with open(os.path.join(args.out, "index.json"), "w") as fh:
         json.dump(index, fh, separators=(",", ":"))
-    total = sum(t["bytes"] for t in tiles)
+    total = sum(t.get("bytes", 0) for t in tiles)
     print(f"{len(tiles)} tiles, {total / 1e6:.1f} MB, {len(mats.entries)} materials, "
           f"{sum(1 for v in mats.textures.values() if v)} textures")
 

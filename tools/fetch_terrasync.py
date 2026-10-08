@@ -18,10 +18,15 @@ import os
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 
 DEFAULT_SERVER = "https://terrasync.b-cdn.net/"
 USER_AGENT = "fgweb-terrasync-mirror/1.0"
+
+
+class NotFound(RuntimeError):
+    """The server has no such file (a 404: no point retrying)."""
 
 
 def http_get(url, retries=6):
@@ -31,6 +36,13 @@ def http_get(url, retries=6):
             req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
             with urllib.request.urlopen(req, timeout=60) as resp:
                 return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise NotFound(f"GET {url}: not found") from exc
+            if attempt == retries:
+                raise RuntimeError(f"GET {url} failed: {exc}") from exc
+            time.sleep(delay)
+            delay *= 2
         except Exception as exc:  # network hiccups: back off and retry
             if attempt == retries:
                 raise RuntimeError(f"GET {url} failed: {exc}") from exc
@@ -97,7 +109,11 @@ def main():
     server = args.server if args.server.endswith("/") else args.server + "/"
     files = []
     for p in args.paths:
-        collect(server, p.strip("/"), not args.no_recursive, files)
+        try:
+            collect(server, p.strip("/"), not args.no_recursive, files)
+        except NotFound:
+            # Buckets that are all ocean have no Terrain or Objects directory.
+            print(f"{p}: not on the server, skipped")
 
     fetched = 0
     failed = []

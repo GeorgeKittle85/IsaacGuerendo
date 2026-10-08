@@ -94,6 +94,7 @@ class App {
     ]);
     this.jsb = jsb;
     this.airports = airports.airports;
+    this.regions = airports.regions ?? [];
     this.groundnetIndex = groundnets;
     // The aircraft is chosen in the start menu; see start().
     this.sim = new Simulation(jsb, null);
@@ -158,7 +159,7 @@ class App {
     this.atc = new ATC(this);
     this.routeView = new TaxiRouteView(this.scene, this.frame, (lat, lon) => this.scenery.elevation(lat, lon),
       () => (this.sim.startCfg?.airport?.elevationFt ?? 0) * FT);
-    this.menu = new Menu(this, this.airports);
+    this.menu = new Menu(this, this.airports, this.regions);
     hideLoading();
     requestAnimationFrame((t) => this.loop(t));
     if (params.has("autostart")) this.start(this.menu.readParams(params));
@@ -396,7 +397,7 @@ class App {
       this.speedUp = 1;
       this.paused = false;
       this.crashNotified = false;
-      this.easterEggShown = false;
+      this.stadiumsSeen = new Set();
       this.aircraft = this.sim.aircraft;
       if (!this.nasal) {
         this.nasal = new NasalRuntime(this.sim.props, {
@@ -628,24 +629,41 @@ class App {
     this.renderer.render(this.scene, this.camera);
   }
 
-  /** A small nod to the Bay Area's football fans; see README. */
+  /** A small nod to the football fans below: low passes over the stadiums in STADIUMS. */
   checkEasterEgg(ac) {
-    if (this.easterEggShown) return;
-    const dLat = (ac.lat - 37.4033) * 111000;
-    const dLon = (ac.lon + 121.9694) * 88000;
     const agl = this.sim.props.get("/position/altitude-agl-ft");
-    if (Math.hypot(dLat, dLon) < 1200 && agl < 3000 && agl > 200) {
-      this.easterEggShown = true;
-      // Fighter flyovers open the big games; the tight end spikes one for it.
-      // The airliner's captain gets a cabin announcement instead.
-      this.hud.message(this.def?.id === "f16"
-        ? "Flyover at Levi's Stadium! 68,500 fans roar and a certain 49ers tight end spikes the ball."
-        : this.def?.id === "737"
-          ? "Captain here: Levi's Stadium off the side, folks. Seat belts fastened low and tight. End of announcement."
-          : "Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.", 6);
+    if (agl < 200 || agl > 3000) return;
+    for (const st of STADIUMS) {
+      if (this.stadiumsSeen.has(st.name)) continue;
+      const dLat = (ac.lat - st.lat) * 111000;
+      const dLon = (ac.lon - st.lon) * 111000 * Math.cos((st.lat * Math.PI) / 180);
+      if (Math.hypot(dLat, dLon) > 1200) continue;
+      this.stadiumsSeen.add(st.name);
+      this.hud.message(st[this.def?.id] ?? st.default, 6);
     }
   }
 }
+
+/**
+ * Fighter flyovers open the big games, so the F-16 gets the crowd; the
+ * airliners' captains make a cabin announcement instead.
+ */
+const STADIUMS = [
+  {
+    name: "Levi's Stadium", lat: 37.4033, lon: -121.9694,
+    f16: "Flyover at Levi's Stadium! 68,500 fans roar and a certain 49ers tight end spikes the ball.",
+    737: "Captain here: Levi's Stadium off the side, folks. Seat belts fastened low and tight. End of announcement.",
+    default: "Levi's Stadium below, home of the 49ers. Nice YAC: yards after climb.",
+  },
+  {
+    // The Ducks joined the Big Ten in 2024, the conference of a certain
+    // tight end's Iowa Hawkeyes.
+    name: "Autzen Stadium", lat: 44.0583, lon: -123.0684,
+    f16: "Flyover at Autzen Stadium! 54,000 Ducks fans roar, and a certain ex-Hawkeye tight end checks the Big Ten standings.",
+    737: "Captain here: Autzen Stadium below, home of the Oregon Ducks. We'll be blocking for the drink cart shortly. End of announcement.",
+    default: "Autzen Stadium below, home of the Ducks: Big Ten rivals of a certain tight end's Hawkeyes now.",
+  },
+];
 
 const app = new App();
 app.boot().catch(showError);

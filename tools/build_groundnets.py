@@ -27,6 +27,7 @@ import math
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -103,6 +104,8 @@ def dirindex(url):
         if exc.code == 404:
             return b""
         return http_get(url)  # anything else: retry with back-off
+    except OSError:  # a dropped connection
+        return http_get(url)
 
 
 def terrasync_groundnet(icao, cache, server):
@@ -123,10 +126,18 @@ def terrasync_groundnet(icao, cache, server):
     return data
 
 
-def gateway_get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "fgweb-groundnets/1.0"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
-        return resp.read()
+def gateway_get(url, retries=4):
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "fgweb-groundnets/1.0"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                return resp.read()
+        except urllib.error.HTTPError:
+            raise  # not on the Gateway
+        except OSError:  # a dropped connection: try again
+            if attempt == retries:
+                raise
+            time.sleep(2 ** attempt)
 
 
 def gateway_apt(icao, cache):
@@ -484,21 +495,29 @@ def main():
     ap.add_argument("--cache", default="build/groundnets")
     ap.add_argument("--server", default=DEFAULT_SERVER)
     ap.add_argument("--airport", action="append", help="only these airports (default: all)")
+    ap.add_argument("--region", action="append", help="only the airports of these regions (tools/regions.json)")
     args = ap.parse_args()
     server = args.server if args.server.endswith("/") else args.server + "/"
     airports = json.load(open(os.path.join(args.scenery, "airports.json")))["airports"]
     out_dir = os.path.join(args.scenery, "groundnets")
     os.makedirs(out_dir, exist_ok=True)
+    wanted = [a for a in airports if (not args.airport or a["icao"] in args.airport)
+              and (not args.region or a.get("region") in args.region)]
+    # Building some airports keeps the others' ground networks.
     index = {}
-    for a in airports:
+    index_path = os.path.join(out_dir, "index.json")
+    if (args.airport or args.region) and os.path.isfile(index_path):
+        known = {a["icao"] for a in airports} - {a["icao"] for a in wanted}
+        index = {k: v for k, v in json.load(open(index_path)).items() if k in known}
+    for a in wanted:
         icao = a["icao"]
-        if args.airport and icao not in args.airport:
-            continue
         gn = terrasync_groundnet(icao, args.cache, server)
         sid, apt = gateway_apt(icao, args.cache)
         built = build_airport(a, gn, apt)
         if not built:
             print(f"{icao}: no parking positions")
+            if os.path.isfile(os.path.join(out_dir, f"{icao}.json")):
+                os.remove(os.path.join(out_dir, f"{icao}.json"))
             continue
         data, st = built
         src = st["src"]
@@ -513,7 +532,9 @@ def main():
         print(f"{icao}: {st['parking']} parking ({src['parking']}), {st['nodes']} nodes, "
               f"{st['named']}/{st['taxi_edges']} taxi segments named, graph from {src['graph']}"
               + ("" if st["gateway_layout"] or not sid else f" [Gateway scenery {sid}: runways differ]"))
-    with open(os.path.join(out_dir, "index.json"), "w") as fh:
+    order = {a["icao"]: i for i, a in enumerate(airports)}
+    index = dict(sorted(index.items(), key=lambda kv: order[kv[0]]))
+    with open(index_path, "w") as fh:
         json.dump(index, fh, separators=(",", ":"))
     print(f"wrote {len(index)} ground networks to {out_dir}")
 

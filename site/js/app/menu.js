@@ -1,5 +1,6 @@
-// The start menu: aircraft, airport, runway, start position, time of day and
-// weather.  The last choices are remembered in this browser (localStorage).
+// The start menu: aircraft, region, airport, runway, start position, time of
+// day and weather.  The last choices are remembered in this browser
+// (localStorage).
 
 import { AIRCRAFT, aircraftById } from "../aircraft/registry.js";
 import { activeRunway } from "../atc/groundnet.js";
@@ -27,26 +28,31 @@ function save(sel) {
 export { activeRunway };
 
 export class Menu {
-  constructor(app, airports) {
+  /** regions: airports.json's [{id, name, default}]; each airport has its region's id. */
+  constructor(app, airports, regions = []) {
     this.app = app;
     this.airports = airports;
+    this.regions = regions.length ? regions : [{ id: undefined, name: "Airports", default: airports[0]?.icao }];
     this.el = $("menu");
     this.form = $("menu-form");
     this.f = {
-      airport: $("m-airport"), runway: $("m-runway"), position: $("m-position"), time: $("m-time"),
+      region: $("m-region"), airport: $("m-airport"), runway: $("m-runway"), position: $("m-position"), time: $("m-time"),
       vis: $("m-vis"), windDir: $("m-wind-dir"), windKt: $("m-wind-kt"), range: $("m-range"), gate: $("m-gate"),
     };
     this.buildAircraftPicker();
-    for (const a of airports) {
+    for (const r of this.regions) {
       const o = document.createElement("option");
-      o.value = a.icao;
-      o.textContent = `${a.icao} · ${a.name}`;
-      this.f.airport.append(o);
+      o.value = r.id ?? "";
+      o.textContent = `${r.name} (${this.airportsIn(r.id).length} airports)`;
+      this.f.region.append(o);
     }
+    $("m-region-row").hidden = this.regions.length < 2;
     const saved = load();
     // Smaller scenery radius by default on phones and tablets.
     if (!saved && app.mobile) this.f.range.value = "15";
-    this.f.airport.value = saved?.airport && airports.some((a) => a.icao === saved.airport) ? saved.airport : "KSFO";
+    const savedApt = airports.find((a) => a.icao === saved?.airport);
+    this.f.region.value = (savedApt ?? airports.find((a) => a.icao === "KSFO") ?? airports[0])?.region ?? "";
+    this.fillAirports(savedApt?.icao);
     this.aircraft = aircraftById(saved?.aircraft).id;
     if (saved) {
       if (saved.position) this.f.position.value = saved.position;
@@ -59,6 +65,11 @@ export class Menu {
     this.fillRunways(saved?.airport === this.f.airport.value ? saved.runway : null);
     this.savedGate = saved?.airport === this.f.airport.value ? saved.gate : null;
     this.fillGates();
+    this.f.region.addEventListener("change", () => {
+      this.fillAirports(null);
+      this.fillRunways(null);
+      this.fillGates();
+    });
     this.f.airport.addEventListener("change", () => {
       this.fillRunways(null);
       this.fillGates();
@@ -128,6 +139,31 @@ export class Menu {
 
   get airport() {
     return this.airports.find((a) => a.icao === this.f.airport.value) ?? this.airports[0];
+  }
+
+  airportsIn(region) {
+    return this.airports.filter((a) => (a.region ?? undefined) === (region ?? undefined));
+  }
+
+  /** The region's airports, those with a control tower first, each group biggest first. */
+  fillAirports(preferred) {
+    const region = this.regions.find((r) => (r.id ?? "") === this.f.region.value) ?? this.regions[0];
+    const list = this.airportsIn(region.id);
+    const sel = this.f.airport;
+    sel.textContent = "";
+    for (const [label, towered] of [["With a control tower", true], ["Without a tower", false]]) {
+      const og = document.createElement("optgroup");
+      og.label = label;
+      for (const a of list.filter((x) => !!(x.towered ?? x.tower) === towered)) {
+        const o = document.createElement("option");
+        o.value = a.icao;
+        o.textContent = `${a.icao} · ${a.name}`;
+        og.append(o);
+      }
+      if (og.children.length) sel.append(og);
+    }
+    const pick = [preferred, region.default].find((icao) => list.some((a) => a.icao === icao)) ?? list[0]?.icao;
+    if (pick) sel.value = pick;
   }
 
   fillRunways(preferred) {
@@ -205,6 +241,7 @@ export class Menu {
   selection() {
     return {
       aircraft: this.aircraft,
+      region: this.f.region.value || null,
       airport: this.f.airport.value,
       runway: this.f.runway.value,
       gate: this.f.gate.value || null,
@@ -217,13 +254,19 @@ export class Menu {
     };
   }
 
-  /** ?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25&gate=D55 */
+  /**
+   * ?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25&gate=D55,
+   * or &region=oregon for that region's main airport.
+   */
   readParams(params) {
     const sel = this.selection();
     if (params.get("aircraft")) sel.aircraft = aircraftById(params.get("aircraft").toLowerCase()).id;
+    const region = this.regions.find((r) => r.id && r.id === params.get("region")?.toLowerCase());
+    if (region?.default) sel.airport = region.default;
     if (params.get("airport")) sel.airport = params.get("airport").toUpperCase();
     const apt = this.airports.find((a) => a.icao === sel.airport) ?? this.airport;
     sel.airport = apt.icao;
+    sel.region = apt.region ?? null;
     const wind = /^(\d+)@(\d+)$/.exec(params.get("wind") ?? "");
     if (wind) {
       sel.windDir = +wind[1];

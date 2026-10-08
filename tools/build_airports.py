@@ -2,6 +2,11 @@
 """Extract airports and runways inside the scenery area from FlightGear's
 Airports/apt.dat.gz (X-Plane apt.dat 1000+ format) for the start menu.
 
+Each airport belongs to a region of tools/regions.json (the start menu lists
+them by region), and only airports whose runways the scenery tiles carry are
+kept.  Their radio frequencies come along for the ATC; an airport is towered
+when it has a tower frequency.
+
 Example:
     python3 tools/build_airports.py --fgdata FG_ROOT --scenery site/data/scenery
 """
@@ -11,6 +16,10 @@ import gzip
 import json
 import math
 import os
+import sys
+
+sys.path.insert(0, os.path.dirname(__file__))
+import regions  # noqa: E402
 
 
 def bearing(lat1, lon1, lat2, lon2):
@@ -26,6 +35,16 @@ def distance_m(lat1, lon1, lat2, lon2):
     a = math.sin((p2 - p1) / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
     return 2 * 6371008.8 * math.asin(math.sqrt(a))
 
+
+# apt.dat frequency rows: 50-56 in units of 10 kHz, 1050-1056 in kHz.
+FREQUENCIES = {0: "atis", 1: "unicom", 2: "clearance", 3: "ground", 4: "tower", 5: "approach", 6: "departure"}
+
+# Towers opened after apt.dat's data cycle (2013.10), from the FAA's chart
+# supplement (via AirNav, 2026): name -> the frequencies to add.
+NEW_TOWERS = {
+    "KUAO": {"tower": 120.35, "ground": 119.15, "atis": 118.525},  # Aurora State, tower since 2015
+    "KOTH": {"tower": 118.45, "ground": 127.1},                     # North Bend
+}
 
 SURFACES = {1: "asphalt", 2: "concrete", 3: "turf", 4: "dirt", 5: "gravel", 12: "lakebed", 13: "water",
             14: "snow", 15: "transparent"}
@@ -47,7 +66,7 @@ def parse(path, bounds):
                 cur = None
                 if code == "1" and len(parts) >= 6:
                     cur = {"icao": parts[4], "name": " ".join(parts[5:]), "elevationFt": float(parts[1]),
-                           "runways": [], "tower": None, "parking": []}
+                           "runways": [], "tower": None, "parking": [], "frequencies": {}}
             elif cur is None:
                 continue
             elif code == "100" and len(parts) >= 26:
@@ -67,6 +86,12 @@ def parse(path, bounds):
             elif code == "14" and len(parts) >= 3:
                 cur["tower"] = {"lat": float(parts[1]), "lon": float(parts[2]),
                                 "heightM": float(parts[3]) * 0.3048 if len(parts) > 3 else 20}
+            elif code in ("50", "51", "52", "53", "54", "55", "56", "1050", "1051", "1052", "1053", "1054",
+                          "1055", "1056") and len(parts) >= 2 and parts[1].isdigit():
+                mhz = int(parts[1]) / (100 if len(code) == 2 else 1000)
+                if len(code) == 2 and parts[1][-1] in "27":
+                    mhz += 0.005  # 25 kHz channels lose their last digit: 11852 is 118.525
+                cur["frequencies"].setdefault(FREQUENCIES[int(code) % 10], round(mhz, 3))
             elif code == "1300" and len(parts) >= 6:
                 cur["parking"].append({"lat": float(parts[1]), "lon": float(parts[2]),
                                        "heading": float(parts[3]), "type": parts[4],
@@ -90,17 +115,47 @@ def main():
     tiles = index["tiles"]
     bounds = (min(t["lat0"] for t in tiles), min(t["lon0"] for t in tiles),
               max(t["lat1"] for t in tiles), max(t["lon1"] for t in tiles))
-    airports = parse(os.path.join(args.fgdata, "Airports", "apt.dat.gz"), bounds)
+    # Airports without runways in the scenery (newer than World Scenery 2.0)
+    # would put the aircraft in a field.
+    in_scenery = {icao for t in tiles for icao in t.get("airports", [])}
+    by_region = {}
+    for t in tiles:
+        by_region.setdefault(t.get("region"), []).append(t)
+    region_list = [r for r in regions.load() if r.id in by_region]
+    airports = []
+    for a in parse(os.path.join(args.fgdata, "Airports", "apt.dat.gz"), bounds):
+        if a["icao"] not in in_scenery:
+            continue
+        r = a["runways"][0]
+        region = next((g.id for g in region_list if g.has_airport(r["lat"], r["lon"], by_region[g.id])), None)
+        # Tiles built with --bucket have no region; otherwise the airport is
+        # in a region's margin, too close to the edge of the scenery.
+        if region is None and not any(t["lat0"] <= r["lat"] <= t["lat1"] and t["lon0"] <= r["lon"] <= t["lon1"]
+                                      for t in by_region.get(None, [])):
+            continue
+        a["region"] = region
+        a["frequencies"].update(NEW_TOWERS.get(a["icao"], {}))
+        a["towered"] = "tower" in a["frequencies"]
+        airports.append(a)
     # Keep parking positions for the larger fields only; they are long lists.
     for a in airports:
         a["parking"] = [p for p in a["parking"] if p["type"] in ("tie-down", "gate", "hangar", "misc")][:40]
     airports.sort(key=lambda a: -max(r["lengthM"] for r in a["runways"]))
     out = os.path.join(args.scenery, "airports.json")
+    region_info = []
+    for g in region_list:
+        ts = by_region[g.id]
+        region_info.append({"id": g.id, "name": g.name, "default": g.default,
+                            "bounds": [min(t["lat0"] for t in ts), min(t["lon0"] for t in ts),
+                                       max(t["lat1"] for t in ts), max(t["lon1"] for t in ts)]})
     with open(out, "w") as fh:
-        json.dump({"bounds": bounds, "airports": airports}, fh, separators=(",", ":"))
+        json.dump({"bounds": bounds, "regions": region_info, "airports": airports}, fh, separators=(",", ":"))
     print(f"wrote {out}: {len(airports)} airports")
-    for a in airports[:15]:
-        print(f"  {a['icao']:5} {a['name'][:40]:40} runways: {' '.join(r['id'] for r in a['runways'])}")
+    for g in region_list:
+        mine = [a for a in airports if a["region"] == g.id]
+        print(f"{g.name}: {len(mine)} airports, {sum(a['towered'] for a in mine)} towered")
+        for a in mine[:12]:
+            print(f"  {a['icao']:5} {a['name'][:40]:40} runways: {' '.join(r['id'] for r in a['runways'])}")
 
 
 if __name__ == "__main__":
