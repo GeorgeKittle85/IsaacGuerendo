@@ -102,11 +102,16 @@ export class Controls {
    * Speed brake: FlightGear's k/K steps and Ctrl+B toggle.  The F-16's opens
    * fully or not at all; the 747's lever has four positions (its Ctrl+B
    * binding cycles /autopilot/autospoilers/step: down, armed, flight
-   * detent, up).
+   * detent, up), and so has the 737's, which its systems work (b738m.js).
    */
   speedbrake(v) {
     const mode = this.app.def?.speedbrake;
     if (!mode) return;
+    if (mode === "lever") {
+      const msg = this.app.aircraft?.speedbrakeLever?.(v);
+      if (msg) this.app.message?.(msg);
+      return;
+    }
     if (mode === "autospoilers") {
       const cur = this.p.get("/autopilot/autospoilers/step");
       const step = v === undefined ? (cur + 1) % 4 : clamp(cur + Math.sign(v), 0, 3);
@@ -119,7 +124,14 @@ export class Controls {
     this.app.message?.(`Speed brake ${on ? "out" : "in"}`);
   }
 
-  /** Delete: thrust reversers (747). */
+  /** The autobrake selector (737): one position up or down. */
+  autobrake(dir) {
+    if (!this.app.def?.autobrake) return;
+    const msg = this.app.aircraft?.autobrakeSelector?.(dir);
+    if (msg) this.app.message?.(msg);
+  }
+
+  /** Delete: thrust reversers (747, 737). */
   toggleReversers() {
     const msg = this.app.aircraft?.toggleReversers?.();
     if (msg) this.app.message?.(msg);

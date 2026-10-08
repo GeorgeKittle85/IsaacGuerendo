@@ -1,6 +1,8 @@
 // End-to-end browser test: serves site/, opens it in headless Chromium, starts
 // on KSFO runway 28R, flies a takeoff through the page's test hook and checks
-// the climb, then saves screenshots of the cockpit and chase views.
+// the climb, then saves screenshots of the cockpit and chase views.  It also
+// checks the aircraft stands on the scenery's runway at the start and that
+// its 3D model's gear goes away when the gear comes up.
 //
 // With --gate, it starts at that KSFO gate instead and works the ground
 // side: the ATC menu (' key), a pushback by the tug, and Ground's taxi
@@ -8,7 +10,7 @@
 //
 // Usage:
 //   npm install            (playwright-core)
-//   node tools/e2e_test.mjs [--aircraft c172p|f16|747] [--gate D55] [--out build/e2e] [--chromium /path/to/chrome]
+//   node tools/e2e_test.mjs [--aircraft c172p|f16|747|737] [--runway 28R] [--gate D55] [--out build/e2e] [--chromium /path/to/chrome]
 //
 // Without a GPU, Chromium renders with SwiftShader: it is slow but works.
 
@@ -28,13 +30,18 @@ const outDir = arg("--out", path.join(here, "../build/e2e"));
 const executablePath = arg("--chromium", process.env.CHROMIUM || undefined);
 const aircraft = arg("--aircraft", "c172p");
 const gate = arg("--gate", null);
+const runway = arg("--runway", "28R");
 // Takeoff: rotate speed and climb attitude, and the climb speeds to expect.
 const TAKEOFF = {
   c172p: { rotateKt: 55, pitch: 8, gain: 0.06, ias: [60, 100], restAgl: 10 },
   f16: { rotateKt: 150, pitch: 12, gain: 0.08, ias: [150, 500], gearUp: true, restAgl: 10 },
   // The 747's reference point is mid-fuselage, 19 ft above the runway.
   747: { rotateKt: 150, pitch: 10, gain: 0.1, ias: [140, 260], gearUp: true, restAgl: 25 },
+  737: { rotateKt: 145, pitch: 10, gain: 0.08, ias: [140, 260], gearUp: true, restAgl: 12 },
 }[aircraft];
+// A part of each model's gear (a bone of the F-16's glTF armature, an object
+// or animation group of the FlightGear models) that must go away with the gear.
+const GEAR_PROBE = { f16: "Wheel_L", 747: "GearBodyLeft", 737: "mlg.tireL" }[aircraft];
 if (!TAKEOFF) throw new Error(`unknown aircraft ${aircraft}`);
 mkdirSync(outDir, { recursive: true });
 
@@ -121,10 +128,26 @@ async function gateScenario() {
   await page.screenshot({ path: path.join(outDir, `${aircraft}-taxi-route.png`) });
 }
 
-/** On runway 28R: a takeoff and climb. */
+/** Where a part of the aircraft's model is, in aircraft axes (z up, m), and whether it is drawn. */
+function gearProbe(name) {
+  return page.evaluate((name) => {
+    const a = window.__fg, T = a.THREE;
+    a.aircraftGroup.updateMatrixWorld(true);
+    const inv = new T.Matrix4().copy(a.aircraftGroup.matrixWorld).invert();
+    let o = a.model.bones?.get(name) ?? null;
+    if (!o) a.model.root.traverse((n) => { if (!o && n.name === name) o = n; });
+    if (!o) return null;
+    let visible = true;
+    for (let n = o; n; n = n.parent) visible &&= n.visible;
+    const p = o.isBone ? o.getWorldPosition(new T.Vector3()) : new T.Box3().setFromObject(o).getCenter(new T.Vector3());
+    return { visible, z: p.applyMatrix4(inv).z };
+  }, name);
+}
+
+/** On a KSFO runway (28R unless --runway): a takeoff and climb. */
 async function takeoffScenario() {
   const t0 = Date.now();
-  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=28R&time=afternoon&wind=280@8`);
+  await page.goto(`${base}/?autostart&aircraft=${aircraft}&airport=KSFO&runway=${runway}&time=afternoon&wind=280@8`);
   await page.waitForFunction(() => window.__fg?.flying === true, null, { timeout: 300000, polling: 500 });
   check(true, `simulator running after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   const start = await page.evaluate(() => {
@@ -132,6 +155,16 @@ async function takeoffScenario() {
     return { agl: p.get("/position/altitude-agl-ft"), wow: p.getBool("/gear/gear[1]/wow"), park: p.get("/controls/gear/brake-parking") };
   });
   check(start.wow && start.agl < TAKEOFF.restAgl, `on the runway (AGL ${start.agl.toFixed(1)} ft)`);
+  // The flight model's ground is the scenery's runway, not a sea-level fallback.
+  const ground = await page.evaluate(() => {
+    const p = window.__fg.sim.props;
+    return { elev: window.__fg.scenery.elevation(p.get("/position/latitude-deg"), p.get("/position/longitude-deg")),
+      gnd: p.get("/position/ground-elev-m"), alt: p.get("/position/altitude-ft") * 0.3048 };
+  });
+  check(ground.elev !== null && ground.alt - ground.elev > 0 && ground.alt - ground.elev < TAKEOFF.restAgl * 0.3048 + 2,
+    `standing on the runway ${runway}: reference point ${(ground.alt - (ground.elev ?? 0)).toFixed(2)} m above the scenery`);
+  const gearDown = GEAR_PROBE && await gearProbe(GEAR_PROBE);
+  if (GEAR_PROBE) check(gearDown?.visible, `model gear (${GEAR_PROBE}) down at the start`);
   check(start.park === 1, "parking brake set at the start");
   check(await page.evaluate(() => window.__fg.def.id) === aircraft, `flying the ${aircraft}`);
   await page.screenshot({ path: path.join(outDir, `${aircraft}-cockpit-runway.png`) });
@@ -174,7 +207,15 @@ async function takeoffScenario() {
   check(!state.crashed, "no crash");
   check(state.agl > 400, `climbed to ${state.agl.toFixed(0)} ft AGL`);
   check(state.ias > TAKEOFF.ias[0] && state.ias < TAKEOFF.ias[1], `climb speed ${state.ias.toFixed(0)} KIAS`);
-  if (TAKEOFF.gearUp) check(state.gearDown === 0, "gear coming up");
+  if (TAKEOFF.gearUp) {
+    check(state.gearDown === 0, "gear coming up");
+    // Wait until it is up, then check the model followed.
+    await page.waitForFunction(() => window.__fg.sim.props.get("/gear/gear[1]/position-norm") < 0.001, null, { timeout: 300000, polling: 1000 });
+    await page.waitForTimeout(1500);
+    const up = await gearProbe(GEAR_PROBE);
+    check(up && (!up.visible || up.z - gearDown.z > 0.5),
+      `model gear (${GEAR_PROBE}) retracted: ${up ? (up.visible ? `${(up.z - gearDown.z).toFixed(2)} m higher` : "hidden") : "missing"}`);
+  }
   if (aircraft === "f16") {
     // glTF model: every animated bone must stay finite (a NaN hides the wheels).
     const bad = await page.evaluate(() => [...window.__fg.model.bones.values()]

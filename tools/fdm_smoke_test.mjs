@@ -4,7 +4,11 @@
 // rotates at 55 KIAS and holds a climb attitude.  Then the same for JSBSim's
 // F-16: afterburner, rotate at 150 KIAS, gear up, and a cold engine start;
 // and for FlightGear's 747-400: flaps 20, rotate at 150 KIAS, gear up, and
-// a cold autostart of all four engines.
+// a cold autostart of all four engines; and for the 737 MAX 8: flaps 5,
+// rotate at 145 KIAS, gear up, a rejected takeoff (RTO autobrakes, ground
+// spoilers, reversers), an approach from a trimmed 3 nm final to a stop
+// (autobrake 2, the armed speedbrake) and a cold autostart (APU, then both
+// engines).
 //
 // Usage: node tools/fdm_smoke_test.mjs
 import { readFileSync } from "node:fs";
@@ -15,6 +19,7 @@ import { JSBSim } from "../site/js/fdm/jsbsim.js";
 import { Simulation } from "../site/js/sim.js";
 import { F16, F16_PROPS, F16_RULES } from "../site/js/aircraft/f16.js";
 import { B744 } from "../site/js/aircraft/b744.js";
+import { B738M } from "../site/js/aircraft/b738m.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const data = (p) => JSON.parse(readFileSync(path.join(here, "../site/data", p), "utf8"));
@@ -170,3 +175,137 @@ for (let frame = 0; frame < 60 * 3; frame++) b744.update(dt);
 log744(started744);
 if (r("/systems/hydraulic/pressure[0]") < 2500) fail("747 hydraulics not pressurised after the start");
 console.log(`PASS: 747-400 engines started in ${started744.toFixed(0)} s`);
+
+// ------------------------------------------------------------------ 737 MAX 8
+
+const b738 = new Simulation(jsb, {
+  fdm: data("fdm/737-8.json"),
+  props: data("aircraft/737-8/props.json"),
+  rules: data("aircraft/737-8/rules.json"),
+}, B738M);
+const k = (p) => b738.props.get(p);
+const log738 = (t) => console.log(
+  `t=${t.toFixed(0).padStart(3)}s agl=${k("/position/altitude-agl-ft").toFixed(0).padStart(5)}ft ` +
+  `ias=${k("/instrumentation/airspeed-indicator/indicated-speed-kt").toFixed(0).padStart(4)}kt ` +
+  `n1=${k("/engines/engine[0]/n1").toFixed(0).padStart(3)}% n2=${k("/engines/engine[0]/n2").toFixed(0).padStart(3)}% ` +
+  `apu=${k("/engines/engine[2]/n2").toFixed(0).padStart(3)}% flaps=${k("/surface-positions/flap-pos-norm").toFixed(2)} ` +
+  `pitch=${k("/orientation/pitch-deg").toFixed(1).padStart(5)} gear=${k("/gear/gear[0]/position-norm").toFixed(2)} ` +
+  `fuel=${k("/consumables/fuel/total-fuel-lbs").toFixed(0)}lb`);
+const RWY = { lat: 37.6117, lon: -122.3583, headingDeg: 298, onGround: true };
+const fly738 = (seconds, each) => {
+  for (let frame = 0; frame <= 60 * seconds; frame++) {
+    if (each(frame / 60) === false) return frame / 60;
+    b738.update(dt);
+  }
+  return seconds;
+};
+const steer738 = () => {
+  b738.props.set("/controls/flight/aileron", Math.max(-1, Math.min(1, -0.03 * k("/orientation/roll-deg"))));
+  const e = ((298 - k("/orientation/heading-deg") + 540) % 360) - 180;
+  b738.props.set("/controls/flight/rudder", Math.max(-1, Math.min(1, 0.08 * e)));
+};
+
+b738.start({ ...RWY, running: true, flaps: 0.375 });
+console.log(`737 MAX 8 ready: ${b738.fdm.engines} engines (2 + APU), ${(k("inertia/weight-lbs") / 1000).toFixed(0)}k lb, ` +
+  `${(k("/consumables/fuel/total-fuel-lbs") / 1000).toFixed(1)}k lb fuel, trim ${b738.fdm.trimmed ? "ok" : "failed"}`);
+if (b738.props.getBool("/engines/engine[2]/running")) fail("737 APU running after a running start");
+for (let i = 0; i < 2; i++) b738.props.set(`/controls/engines/engine[${i}]/throttle`, 1);
+let maxAgl738 = 0;
+fly738(90, (t) => {
+  if (k("/velocities/airspeed-kt") > 145 || k("/position/altitude-agl-ft") > 20) {
+    b738.props.set("/controls/flight/elevator", Math.max(-1, Math.min(1, -0.08 * (10 - k("/orientation/pitch-deg")))));
+  }
+  if (k("/position/altitude-agl-ft") > 100) b738.props.set("/controls/gear/gear-down", 0);
+  steer738();
+  if (Math.round(t * 60) % (60 * 15) === 0) log738(t);
+  maxAgl738 = Math.max(maxAgl738, k("/position/altitude-agl-ft"));
+});
+if (b738.fdm.crashed) fail("737 crashed");
+if (maxAgl738 < 1000) fail(`737 expected above 1000 ft AGL, reached ${maxAgl738.toFixed(0)} ft`);
+if (k("/gear/gear[0]/position-norm") > 0.5) fail("737 gear did not retract");
+if (k("/controls/gear/autobrakes") !== 0) fail("737 RTO autobrake still armed after takeoff");
+console.log(`PASS: 737 MAX 8 climbed to ${maxAgl738.toFixed(0)} ft AGL with the gear up`);
+
+// Rejected takeoff: throttles closed at 100 kt with RTO armed (a ground
+// start's default): the autobrakes brake to a stop and the speedbrake
+// lever comes up; then the reversers.
+b738.start({ ...RWY, running: true, flaps: 0.375 });
+b738.props.set("/controls/gear/brake-parking", 0);
+for (let i = 0; i < 2; i++) b738.props.set(`/controls/engines/engine[${i}]/throttle`, 1);
+const x0 = [k("/position/latitude-deg"), k("/position/longitude-deg")];
+let rtoAt = null;
+let braking = false;
+const stopped = fly738(120, (t) => {
+  steer738();
+  if (rtoAt === null && k("/velocities/airspeed-kt") > 100) {
+    rtoAt = t;
+    for (let i = 0; i < 2; i++) b738.props.set(`/controls/engines/engine[${i}]/throttle`, 0);
+    b738.aircraft.toggleReversers();
+  }
+  braking ||= k("fcs/autobrake/autobrake-in-use") === 1;
+  if (rtoAt !== null && k("/velocities/groundspeed-kt") < 1) return false;
+});
+const rollout = Math.hypot((k("/position/latitude-deg") - x0[0]) * 111195,
+  (k("/position/longitude-deg") - x0[1]) * 111195 * Math.cos((x0[0] * Math.PI) / 180));
+if (!braking) fail("737 RTO autobrakes did not engage");
+if (k("/surface-positions/speedbrake-norm") < 0.9) fail("737 speedbrake did not come up in the RTO");
+if (k("/engines/engine[0]/reverser-pos-norm") < 0.9) fail("737 reversers did not deploy");
+if (k("/velocities/groundspeed-kt") > 1) fail("737 did not stop after the RTO");
+console.log(`PASS: 737 MAX 8 rejected takeoff at 100 kt: stopped ${(stopped - rtoAt).toFixed(0)} s later, ${rollout.toFixed(0)} m from brake release`);
+
+// A 3 nm final with flaps 30 at 150 kt, as the menu's "final" start: JSBSim
+// trims it with the stabilizer; down the 3° path, flare, and the armed
+// speedbrake and autobrake 2 stop it on the runway.
+{
+  const d = 3 * 1852;
+  b738.start({ lat: 37.6117, lon: -122.3583, headingDeg: 298, onGround: false, running: true, speedKts: 150,
+    altitudeFt: (4 + d * Math.tan((3 * Math.PI) / 180)) / 0.3048 + 50, flaps: 0.875, throttle: 0.6 });
+  if (!b738.fdm.trimmed) fail("737 not trimmed on final");
+  console.log(`737 MAX 8 on final: trimmed with the stabilizer at ${k("fcs/stabilizer-pos-unit").toFixed(1)} units, ` +
+    `throttle ${(k("/controls/engines/engine[0]/throttle") * 100).toFixed(0)}%, pitch ${k("/orientation/pitch-deg").toFixed(1)}°`);
+  let thr = k("/controls/engines/engine[0]/throttle"), flare = false, touchdown = null, sink = 0;
+  fly738(240, (t) => {
+    const ra = k("/position/altitude-agl-ft") - 9;
+    const ias = k("/velocities/airspeed-kt");
+    const vs = k("/velocities/vertical-speed-fps") * 60;
+    const wow = b738.props.getBool("/gear/gear[1]/wow");
+    flare ||= ra < 35;
+    const wantVs = flare ? -Math.max(120, ra * 15) : -ias * 101.27 * Math.tan((3 * Math.PI) / 180);
+    const wantPitch = Math.max(-3, Math.min(10, 2 + (wantVs - vs) * 0.004 + (flare ? 1.5 : 0)));
+    b738.props.set("/controls/flight/elevator", wow ? 0 : Math.max(-1, Math.min(1, -0.1 * (wantPitch - k("/orientation/pitch-deg")))));
+    if (!flare) thr = Math.max(0, Math.min(1, thr + (145 - ias) * 0.0006));
+    for (let i = 0; i < 2; i++) b738.props.set(`/controls/engines/engine[${i}]/throttle`, flare ? 0 : thr);
+    steer738();
+    if (wow && touchdown === null) {
+      touchdown = t;
+      sink = vs;
+    }
+    if (touchdown !== null && k("/velocities/groundspeed-kt") < 1) return false;
+  });
+  if (b738.fdm.crashed) fail("737 crashed on the approach");
+  if (touchdown === null) fail("737 did not touch down");
+  if (sink < -600) fail(`737 landed hard: ${sink.toFixed(0)} fpm`);
+  if (k("fcs/spoiler-pos-norm") < 0.9) fail("737 ground spoilers did not deploy on landing");
+  if (k("/velocities/groundspeed-kt") > 1) fail("737 did not stop after landing");
+  console.log(`PASS: 737 MAX 8 landed at ${sink.toFixed(0)} fpm, autobrake 2 and spoilers stopped it`);
+}
+
+// Cold and dark: the autostart runs the APU, both engines, then shuts the APU down.
+b738.start({ ...RWY, running: false });
+if (b738.aircraft.running) fail("737 cold start with the engines running");
+console.log(b738.aircraft.autostart());
+let started738 = null;
+let apuSeen = false;
+fly738(180, (t) => {
+  apuSeen ||= b738.props.getBool("/engines/engine[2]/running");
+  if (b738.aircraft.running) {
+    started738 = t;
+    return false;
+  }
+});
+if (started738 === null) fail("737 engines did not start");
+if (!apuSeen) fail("737 autostart did not run the APU");
+fly738(30, () => {});
+log738(started738);
+if (b738.props.getBool("/engines/engine[2]/running") || k("/engines/engine[2]/n2") > 50) fail("737 APU still running after the start");
+console.log(`PASS: 737 MAX 8 engines started in ${started738.toFixed(0)} s`);

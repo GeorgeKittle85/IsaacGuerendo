@@ -2,9 +2,9 @@
 
 FlightGear's flight simulation running in a web browser. The JSBSim flight
 dynamics engine, FlightGear's default flight model, is compiled to
-WebAssembly. It flies FlightGear's Cessna 172P, an F-16 Fighting Falcon, or
-FlightGear's Boeing 747-400 over FlightGear's own San Francisco Bay Area
-scenery, rendered with three.js. Start at a gate, have a tug push you back,
+WebAssembly. It flies FlightGear's Cessna 172P, an F-16 Fighting Falcon,
+FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over FlightGear's own San
+Francisco Bay Area scenery, rendered with three.js. Start at a gate, have a tug push you back,
 and taxi out the way the ground controller tells you.
 
 The whole thing is a static website with no server-side code. It can be
@@ -58,6 +58,26 @@ hosted on GitHub Pages or any web server.
     four engines.
   - Its 3D model, with the cockpit, lights, gear and flap animations, and
     its sounds.
+- **Boeing 737 MAX 8.** The 737-family project's 737 MAX 8 (Israel
+  Emmanuel, Josh Davidson and the 737 MAX team). Pick it in the start menu.
+  - Its JSBSim flight model: two CFM LEAP-1B28 turbofans and an APU, flaps
+    1, 2, 5, 10, 15, 25, 30 and 40, a stabilizer pitch trim, flight and
+    ground spoilers, thrust reversers, nose wheel steering.
+  - Systems the project's Nasal does not do yet are done here
+    (`site/js/aircraft/b738m.js`): the speedbrake lever (down, armed,
+    flight detent, up) with the ground spoilers deploying on touchdown,
+    autobrakes (RTO, 1, 2, 3, MAX), the reversers, and the autostart, which
+    runs the APU and then starts both engines from its bleed air.
+  - Its 3D model, with the gear, flaps, slats, ailerons, elevators,
+    stabilizer, rudder, reversers and fans animated, the spoilers and the
+    nose gear retraction added, beacons, navigation lights and strobes.
+  - A head-up display in the cockpit view, after the 737's head-up
+    guidance system: pitch ladder, flight path symbol, airspeed, altitude,
+    radio altitude, heading, and the flaps, speedbrake, gear and autobrake.
+  - Pushback by the project's Kalmar tug; engine, APU, gear, flap, wind and
+    rolling sounds, with the "eighty knots, V1, rotate" calls on takeoff
+    and the radio altitude callouts on landing.
+  - The project is a work in progress and has no 3D flight deck yet.
 - **Gates, pushback and ATC.** Choose **At a gate** in the start menu.
   - Gates and parking spots come from FlightGear's ground networks
     (TerraSync's `groundnet.xml`): 209 at San Francisco, and others at
@@ -66,8 +86,8 @@ hosted on GitHub Pages or any web server.
   - **Pushback:** a port of FlightGear's Autopush. The tug follows the
     gate's pushback route from the ground network, holding a walking pace
     and steering the nose wheel. The 747 is pushed by FlightGear's Goldhofer
-    tug, the F-16 by its military tug (which drives in first), the Cessna
-    by ground crew with its own towbar.
+    tug, the 737 by its Kalmar tug, the F-16 by its military tug (which
+    drives in first), the Cessna by ground crew with its own towbar.
   - **ATC:** press **'** (as in FlightGear) to talk to San Francisco Ground,
     Tower and NorCal Departure. Ground clears you to the runway through
     named taxiways, with runway crossings and the hold short point:
@@ -123,7 +143,7 @@ URL parameters skip the start menu, for example:
 
 | Parameter | Values |
 | --- | --- |
-| `aircraft` | `c172p` (default), `f16`, `747` |
+| `aircraft` | `c172p` (default), `f16`, `747`, `737` |
 | `position` | `runway`, `cold` (runway, engine off), `gate`, `gate-cold` (at a gate, engines off), `final` (3 nm final), `air` (3000 ft above the airport) |
 | `gate` | a gate or parking spot, e.g. `D55` (implies `position=gate`) |
 | `time` | `morning`, `noon`, `afternoon`, `dusk`, `evening`, `midnight`, `now` |
@@ -182,6 +202,23 @@ rotates at about 150 kt:
 | Delete | Thrust reversers (on the ground, at idle) |
 | Shift+S | Autostart: APU, then engines 1–4 |
 
+The 737 MAX 8 takes off with flaps 5 (a runway start sets them), rotates at
+about 145 kt, and lands with flaps 30 or 40 at about 145–150 kt. A runway
+start arms the autobrakes' RTO; an approach start sets autobrake 2 and arms
+the speedbrake. Without a 3D flight deck its cockpit view looks out over the
+head-up display.
+
+| Keys | Action |
+| --- | --- |
+| `[` `]` | Flaps: UP, 1, 2, 5, 10, 15, 25, 30, 40 |
+| `g`, `G` | Gear up, gear down |
+| Ctrl+B, `k`/`K` | Speedbrake lever: down, armed, flight detent, up |
+| `u`, `U` | Autobrake selector: RTO, OFF, 1, 2, 3, MAX |
+| Delete | Thrust reversers (on the ground, at idle) |
+| Home, End | Stabilizer trim |
+| `H` | Head-up display on / off |
+| Shift+S | Autostart: APU, then engines 1 and 2 |
+
 ### From the gate
 
 Start **At a gate**, then:
@@ -208,13 +245,13 @@ taxi to the gate**.
 | Path | Contents |
 | --- | --- |
 | `site/` | The website: `index.html`, `css/`, `js/`, `wasm/` (JSBSim build), `data/` (converted FlightGear data), `vendor/` (three.js) |
-| `site/js/fdm`, `props`, `systems`, `instruments`, `aircraft`, `nasal` | The simulation: JSBSim interface, property tree, property rules, instruments, c172p, F-16 and 747-400 systems, the aircraft list, Nasal translator |
+| `site/js/fdm`, `props`, `systems`, `instruments`, `aircraft`, `nasal` | The simulation: JSBSim interface, property tree, property rules, instruments, c172p, F-16, 747-400 and 737 MAX 8 systems, the aircraft list, Nasal translator |
 | `site/js/atc` | Ground operations: ground networks and taxi routing, the pushback tug (Autopush), the ATC, the taxi line |
 | `site/js/scene`, `model` | Rendering: geodesy, scenery tiles and materials, sky, lights, scenery objects, AC3D and FlightGear model loading, glTF aircraft models |
 | `site/js/sound` | Aircraft sound (SimGear's XML sound system on Web Audio) |
 | `site/js/app` | User interface: controls, input, touch controls, views, menu, flight data strip, radio |
 | `wasm/` | JSBSim WebAssembly build script, C++ bridge and patch |
-| `tools/` | Data conversion pipeline and tests (`tools/f16/`: the F-16's sound configuration) |
+| `tools/` | Data conversion pipeline and tests (`tools/f16/`: the F-16's sound configuration; `tools/b737/`: the 737's model wrapper and sound configuration) |
 
 ## Rebuilding the data
 
@@ -261,6 +298,16 @@ fetches with a sparse checkout of FGData:
 tools/build_747.sh            # downloads 747-400.zip from the FlightGear mirror
 ```
 
+The 737 MAX 8 comes from the 737-family project on GitHub: the flight model,
+systems and sounds from its `dev` branch, the 3D model from its `fde` branch
+(the `dev` branch no longer carries it). `tools/build_737.sh` fetches both at
+the commits it names, plus the same shared FGData files as the 747, and
+converts them with `tools/b737/`'s model wrapper and sound configuration:
+
+```sh
+tools/build_737.sh
+```
+
 The ground networks (gates, pushback routes, taxiways) come from TerraSync,
 with taxiway names from the X-Plane Scenery Gateway:
 
@@ -281,20 +328,22 @@ wasm/build.sh build/wasm
 
 ```sh
 npm test                  # flight model smoke test, Nasal translator and ground operations tests (Node only)
-npm install && npm run test:e2e -- --chromium /path/to/chrome [--aircraft f16|747] [--gate D55]
+npm install && npm run test:e2e -- --chromium /path/to/chrome [--aircraft f16|747|737] [--runway 10L] [--gate D55]
 ```
 
 The smoke test flies takeoffs with the WebAssembly JSBSim, the c172p, the
-F-16 and the 747 (with the gear coming up), checks the climbs, and starts
-the F-16's and the 747's engines from cold. The ground operations test
+F-16, the 747 and the 737 (with the gear coming up), checks the climbs, and
+starts the F-16's, the 747's and the 737's engines from cold; the 737 also
+rejects a takeoff and lands from a 3 nm final on its autobrakes. The ground operations test
 routes every airport's taxiways, then flies each aircraft through a whole
 departure from a San Francisco gate: pushback, Ground's taxi clearance,
 taxiing the route to the hold short point, the takeoff clearance and the
 handoff to Departure; and an arrival: landing clearance, taxi in and
 parking at a gate. The end-to-end test loads the site in headless
-Chromium, takes off from San Francisco in the chosen aircraft and saves
-screenshots; with `--gate`, it starts at that gate, pushes back with the
-tug and gets a taxi clearance instead.
+Chromium, takes off from San Francisco in the chosen aircraft (on runway
+28R, or `--runway`), checks it stands on the runway and that its model's
+gear retracts, and saves screenshots; with `--gate`, it starts at that gate,
+pushes back with the tug and gets a taxi clearance instead.
 
 ## Credits and licenses
 
@@ -306,6 +355,9 @@ projects:
   models, star catalogue, and the simulator code the JavaScript here is
   ported from (GPL-2.0-or-later).
 - The Cessna 172P by the c172p team (GPL-2.0-or-later).
+- The Boeing 737 MAX 8 of the 737-family project by Israel Emmanuel, Josh
+  Davidson and the 737 MAX team, with its JSBSim flight model by Michael
+  Soitanen, YV3399, Octal450 and sriemmanuel787 (GPL-2.0).
 - The Boeing 747-400 by Gijs de Rooy and the 747 team (GPL-2.0), and
   FlightGear's Autopush pushback by Michael Danilov, Joshua Davidson and
   Merspieler (GPL-2.0).

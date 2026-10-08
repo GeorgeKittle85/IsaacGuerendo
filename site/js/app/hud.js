@@ -94,17 +94,19 @@ export class Hud {
     const brakes = p.getBool("/controls/gear/brake-parking") ? "PARK" :
       Math.max(g("/controls/gear/brake-left"), g("/controls/gear/brake-right")) > 0.05 ? "ON" : "off";
     set("brk", brakes);
-    if (extra.aircraft === "747") {
+    if (extra.aircraft === "747" || extra.aircraft === "737") {
       const rev = p.get("/engines/engine[0]/reverser-pos-norm") > 0.5;
       set("thr", rev ? `${thr} REV` : thr);
+      const engines = extra.aircraft === "747" ? 4 : 2;
       let n1 = 0;
-      for (let i = 0; i < 4; i++) n1 += g(`/engines/engine[${i}]/n1`);
-      set("n1", (n1 / 4).toFixed(0));
+      for (let i = 0; i < engines; i++) n1 += g(`/engines/engine[${i}]/n1`);
+      set("n1", (n1 / engines).toFixed(0));
       set("mach", g("/velocities/mach").toFixed(2));
       set("flaps", extra.flaps ?? "UP");
       const gear = g("/gear/gear[0]/position-norm");
       set("gear", gear > 0.99 ? "DOWN" : gear < 0.01 ? "UP" : "MOVING");
-      set("sbrk", ["DOWN", "ARMED", "FLIGHT", "UP"][g("/autopilot/autospoilers/step")] ?? "DOWN");
+      set("sbrk", extra.speedbrake ?? ["DOWN", "ARMED", "FLIGHT", "UP"][g("/autopilot/autospoilers/step")] ?? "DOWN");
+      if (extra.autobrake) set("abrk", extra.autobrake);
       set("fuel", `${Math.round(g("/consumables/fuel/total-fuel-lbs") / 1000).toLocaleString("en-US")}k lb`);
     } else if (extra.aircraft === "f16") {
       set("thr", p.getBool("/engines/engine[0]/augmentation") ? `${thr} AB` : thr);
