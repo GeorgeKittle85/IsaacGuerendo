@@ -73,6 +73,18 @@ class Tile {
     this.grid = CollisionGrid.from(meshes, prep.grid);
     this.zmin = prep.zmin;
     this.zmax = prep.zmax;
+    // Everything the tile holds, as a lat/lon box: an airport's runways and
+    // taxiways belong to the tile of its reference point and can reach well
+    // into the next tile, whose terrain has a hole there (KSFO's 10L and
+    // 19L thresholds).  A little slack covers the tangent plane's curvature.
+    const g = this.grid, slack = 200;
+    const mLat = 111195, mLon = 111195 * Math.cos((data.lat * Math.PI) / 180);
+    this.reach = {
+      lat0: Math.min(info.lat0, data.lat + (g.minY - slack) / mLat),
+      lat1: Math.max(info.lat1, data.lat + (g.minY + g.ny * g.cell + slack) / mLat),
+      lon0: Math.min(info.lon0, data.lon + (g.minX - slack) / mLon),
+      lon1: Math.max(info.lon1, data.lon + (g.minX + g.nx * g.cell + slack) / mLon),
+    };
   }
 
   materialOf(meshIndex, tri) {
@@ -83,6 +95,12 @@ class Tile {
   contains(lat, lon) {
     const i = this.info;
     return lat >= i.lat0 && lat <= i.lat1 && lon >= i.lon0 && lon <= i.lon1;
+  }
+
+  /** Whether any of the tile's triangles can lie below (lat, lon). */
+  reaches(lat, lon) {
+    const r = this.reach;
+    return lat >= r.lat0 && lat <= r.lat1 && lon >= r.lon0 && lon <= r.lon1;
   }
 
   /** Ground below (lat, lon) -> {elev (m), nE, nN, nU, material} or null. */
@@ -183,9 +201,19 @@ export class SceneryManager {
     }
   }
 
-  tileAt(lat, lon) {
-    for (const t of this.tiles.values()) if (t.contains(lat, lon)) return t;
-    return null;
+  /**
+   * The ground below (lat, lon): the highest surface of the loaded tiles
+   * that reach there, or null.  Asking only the tile whose bounds hold the
+   * point would fall through a hole left for a neighbour's airport.
+   */
+  surfaceAt(lat, lon) {
+    let best = null;
+    for (const t of this.tiles.values()) {
+      if (!t.reaches(lat, lon)) continue;
+      const r = t.query(lat, lon);
+      if (r && (!best || r.elev > best.elev)) best = r;
+    }
+    return best;
   }
 
   infoAt(lat, lon) {
@@ -196,18 +224,14 @@ export class SceneryManager {
   groundQuery(latRad, lonRad) {
     const lat = (latRad * 180) / Math.PI;
     const lon = (lonRad * 180) / Math.PI;
-    const tile = this.tileAt(lat, lon);
-    if (!tile) return null;
-    const r = tile.query(lat, lon);
+    const r = this.surfaceAt(lat, lon);
     if (r) this.lastMaterial = r.material >= 0 ? this.materialDefs[r.material] : null;
     return r;
   }
 
   /** Elevation in metres, or null when no tile is loaded there. */
   elevation(lat, lon) {
-    const t = this.tileAt(lat, lon);
-    const r = t?.query(lat, lon);
-    return r ? r.elev : null;
+    return this.surfaceAt(lat, lon)?.elev ?? null;
   }
 
   /** Decoding, normals and the collision grid happen in a worker when possible. */
