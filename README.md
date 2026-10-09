@@ -5,8 +5,9 @@ dynamics engine, FlightGear's default flight model, is compiled to
 WebAssembly. It flies FlightGear's Cessna 172P, an F-16 Fighting Falcon,
 FlightGear's Boeing 747-400 or a Boeing 737 MAX 8 over FlightGear's own
 scenery of the San Francisco Bay Area and the whole state of Oregon,
-rendered with three.js. Start at a gate, have a tug push you back, and taxi
-out the way the ground controller tells you.
+rendered with three.js, draped with aerial photographs and built up with
+OpenStreetMap's buildings, roads and railways. Start at a gate, have a tug
+push you back, and taxi out the way the ground controller tells you.
 
 The whole thing is a static website with no server-side code. It can be
 hosted on GitHub Pages or any web server.
@@ -131,6 +132,35 @@ hosted on GitHub Pages or any web server.
     San Francisco, the SFO and Oakland terminals; Portland's airport
     terminal and tower, downtown Portland's towers, the Tillamook Air
     Museum's blimp hangar; and more.
+- **Aerial imagery.** Every land tile wears a photograph from the USDA's
+  National Agriculture Imagery Program (NAIP, public domain), at about 10 m
+  a pixel, and about 5 m around the main airports and the busiest towns
+  (`tools/build_imagery.py`).
+  - The photograph gives the land its colour; close by, FlightGear's
+    land-cover texture adds the fine detail a 10 m pixel does not have.
+    Runways, taxiways and water keep FlightGear's own look.
+  - Each tile's image loads at the resolution its distance calls for (half
+    size far away, the sharper image only for the nearest tiles), which
+    keeps the GPU memory down; phones and tablets keep to half size.
+- **OpenStreetMap buildings, roads and railways** (`tools/build_osm.py`),
+  for the Bay Area and all of Oregon: 3.7 million buildings and 805,000
+  pieces of road and railway, in 70 MB.
+  - Buildings are extruded from their footprints with OSM's heights
+    (`height`, `building:levels`, `min_height`, `building:part`) or a
+    height for the kind of building, with flat, gabled, hipped or
+    pyramidal roofs and their tagged colours. Facades get windows: glass by
+    day, lit at random by night.
+  - Buildings a TerraSync model already stands on (the SFO terminals,
+    downtown San Francisco's towers, Moffett Field's hangars) are left out,
+    as osm2city does for FlightGear.
+  - Roads from motorways to residential streets, with their lanes, edge and
+    centre lines, are draped over the terrain triangles; bridges are decks
+    from bank to bank; railways have their sleepers and rails.
+  - The landmarks (tall and big buildings, main roads, railways) load with
+    each tile; small buildings and streets only within a few kilometres of
+    the aircraft, chunk by chunk, built in the tile worker.
+  - The start menu's **Scenery layers** turn imagery, buildings and roads
+    on and off.
 - **Sky.** The sun is placed from the real date and time, and the night sky
   uses FlightGear's star catalogue. Haze follows the visibility setting.
 - **Sound.** The c172p's FlightGear sound configuration (engine, wind,
@@ -171,12 +201,17 @@ URL parameters skip the start menu, for example:
 | `wind` | direction the wind blows from @ speed in knots |
 | `vis` | visibility in metres |
 | `range` | scenery loading radius in km |
+| `imagery`, `buildings`, `roads` | `0` turns that scenery layer off |
 
 ## Deploying to GitHub Pages
 
 `.github/workflows/pages.yml` publishes `site/` whenever `main` changes. To
 enable it, go to the repository's **Settings → Pages** and set **Source** to
 **GitHub Actions**.
+
+The site is about 550 MB, within GitHub Pages' 1 GB limit: the aerial
+images are about 285 MB of it (WebP at quality 45, ~10 m a pixel, ~5 m for
+40 tiles), the OpenStreetMap data 70 MB (varint-coded, gzip'd).
 
 ## Flying
 
@@ -268,11 +303,12 @@ taxi to the gate**.
 | `site/` | The website: `index.html`, `css/`, `js/`, `wasm/` (JSBSim build), `data/` (converted FlightGear data), `vendor/` (three.js) |
 | `site/js/fdm`, `props`, `systems`, `instruments`, `aircraft`, `nasal` | The simulation: JSBSim interface, property tree, property rules, instruments, c172p, F-16, 747-400 and 737 MAX 8 systems, the aircraft list, Nasal translator |
 | `site/js/atc` | Ground operations: ground networks and taxi routing, the pushback tug (Autopush), the ATC, the taxi line |
-| `site/js/scene`, `model` | Rendering: geodesy, scenery tiles and materials, sky, lights, scenery objects, AC3D and FlightGear model loading, glTF aircraft models |
+| `site/js/scene`, `model` | Rendering: geodesy, scenery tiles and materials, aerial imagery, OpenStreetMap buildings and roads, sky, lights, scenery objects, AC3D and FlightGear model loading, glTF aircraft models |
 | `site/js/sound` | Aircraft sound (SimGear's XML sound system on Web Audio) |
 | `site/js/app` | User interface: controls, input, touch controls, views, menu, flight data strip, radio |
 | `wasm/` | JSBSim WebAssembly build script, C++ bridge and patch |
 | `tools/regions.json` | The scenery regions: the Bay Area's buckets, Oregon's boundary (`tools/regions.py` turns them into tiles and airports) |
+| `site/data/scenery/osm`, `imagery` | OpenStreetMap buildings and roads per tile (ODbL), aerial images per tile |
 | `tools/` | Data conversion pipeline and tests (`tools/f16/`: the F-16's sound configuration; `tools/b737/`: the 737's model wrapper and sound configuration) |
 
 ## Rebuilding the data
@@ -282,7 +318,7 @@ just to run or host the site.
 
 Requirements:
 
-- Python 3.9+ with Pillow and NumPy: `pip install -r tools/requirements.txt`
+- Python 3.9+ with Pillow, NumPy and pyosmium: `pip install -r tools/requirements.txt`
 - Node.js 18+
 - The FlightGear 2024.1 data package (`FlightGear-2024.1.x-data.txz` from
   the FlightGear download page), extracted: this is `FG_ROOT` below
@@ -298,6 +334,22 @@ models, checked against TerraSync's SHA-1 indexes) for the regions in
 - the aircraft: flight model, properties, rules, 3D model, sounds
 - the scenery: tiles, airports and objects
 - the star catalogue
+- OpenStreetMap's buildings, roads and railways, from Geofabrik's extracts
+  of the states the regions reach into
+- the aerial imagery, from the USGS National Map
+
+The last two can be run on their own once the scenery is there:
+
+```sh
+python3 tools/build_osm.py --scenery site/data/scenery \
+  --pbf oregon-latest.osm.pbf --pbf norcal-latest.osm.pbf \
+  --pbf washington-latest.osm.pbf --pbf idaho-latest.osm.pbf --pbf nevada-latest.osm.pbf
+python3 tools/build_imagery.py --scenery site/data/scenery --cache build/imagery
+```
+
+`build_imagery.py` keeps its downloads in `--cache`, so a second run only
+re-encodes; `--width`, `--hi-width`, `--hi-count` and `--quality` trade
+sharpness for size.
 
 The F-16 comes from other sources: JSBSim's F-16 flight model, sounds from
 FlightGear's F-16 in FGAddon, and the Blender model `F-16_EXP_animated.blend`.
@@ -358,7 +410,7 @@ wasm/build.sh build/wasm
 ## Tests
 
 ```sh
-npm test                  # flight model smoke test, Nasal translator and ground operations tests (Node only)
+npm test                  # flight model smoke test, Nasal translator, ground operations and OSM layer tests (Node only)
 npm install && npm run test:e2e -- --chromium /path/to/chrome [--aircraft f16|747|737] [--airport KPDX] [--runway 10L] [--gate D55]
 ```
 
@@ -371,7 +423,10 @@ Area and Oregon), then flies each aircraft through a whole departure from
 a San Francisco gate: pushback, Ground's taxi clearance, taxiing the route
 to the hold short point, the takeoff clearance and the handoff to
 Departure; the 737 does it again from Portland's gate C5. Then an arrival:
-landing clearance, taxi in and parking at a gate. The end-to-end test
+landing clearance, taxi in and parking at a gate. The OSM test prepares a
+few tiles the way the tile worker does and checks that every building stands
+on the terrain, the meshes are well formed and the aerial image covers the
+tile. The end-to-end test
 loads the site in headless Chromium, takes off from San Francisco in the
 chosen aircraft (on runway 28R, or `--airport` and `--runway`), checks it
 stands on the runway and that its model's gear retracts, and saves
@@ -396,6 +451,11 @@ projects:
   Merspieler (GPL-2.0).
 - The X-Plane Scenery Gateway's airport data, for taxiway names
   (GPL-2.0-or-later).
+- [OpenStreetMap](https://www.openstreetmap.org/copyright): buildings, roads
+  and railways, © OpenStreetMap contributors, under the Open Database
+  License (the data in `site/data/scenery/osm`).
+- The USDA's NAIP aerial imagery from the USGS National Map (public domain).
+- [earcut](https://github.com/mapbox/earcut) (ISC), for the roofs.
 - The US Census Bureau's state boundaries, for Oregon's outline (public
   domain).
 - [JSBSim](https://github.com/JSBSim-Team/jsbsim) (LGPL-2.1-or-later), and

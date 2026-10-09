@@ -1,8 +1,9 @@
 // End-to-end browser test: serves site/, opens it in headless Chromium, starts
 // on KSFO runway 28R (or --airport, --runway), flies a takeoff through the page's test hook and checks
 // the climb, then saves screenshots of the cockpit and chase views.  It also
-// checks the aircraft stands on the scenery's runway at the start and that
-// its 3D model's gear goes away when the gear comes up.
+// checks the aircraft stands on the scenery's runway at the start, that the
+// aerial imagery and the OpenStreetMap buildings and roads are on the tiles,
+// and that its 3D model's gear goes away when the gear comes up.
 //
 // With --gate, it starts at that gate instead and works the ground
 // side: the ATC menu (' key), a pushback by the tug, and Ground's taxi
@@ -164,6 +165,25 @@ async function takeoffScenario() {
   });
   check(ground.elev !== null && ground.alt - ground.elev > 0 && ground.alt - ground.elev < TAKEOFF.restAgl * 0.3048 + 2,
     `standing on ${airport} runway ${runway ?? "(the active one)"}: reference point ${(ground.alt - (ground.elev ?? 0)).toFixed(2)} m above the scenery`);
+  // Aerial imagery and OpenStreetMap buildings and roads, where the data has them.
+  const layers = await page.evaluate(() => {
+    const a = window.__fg;
+    const tiles = [...a.scenery.tiles.values()];
+    let buildings = 0, roads = 0;
+    for (const e of a.osm.tiles.values()) {
+      e.group.traverse((o) => {
+        if (o.isMesh && o.name === "osm-buildings") buildings++;
+        else if (o.isMesh && o.name === "osm-roads") roads++;
+      });
+    }
+    return { tiles: tiles.length, sat: tiles.filter((t) => t.satLevel >= 0).length, imagery: !!a.scenery.imagery,
+      osm: !!a.scenery.osmIndex, osmTiles: a.osm.tiles.size, buildings, roads };
+  });
+  if (layers.imagery) check(layers.sat > 0, `aerial imagery on ${layers.sat} of ${layers.tiles} tiles`);
+  if (layers.osm) {
+    check(layers.buildings > 0 && layers.roads > 0,
+      `OpenStreetMap: ${layers.buildings} building and ${layers.roads} road meshes on ${layers.osmTiles} tiles`);
+  }
   const gearDown = GEAR_PROBE && await gearProbe(GEAR_PROBE);
   if (GEAR_PROBE) check(gearDown?.visible, `model gear (${GEAR_PROBE}) down at the start`);
   check(start.park === 1, "parking brake set at the start");

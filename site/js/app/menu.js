@@ -38,6 +38,7 @@ export class Menu {
     this.f = {
       region: $("m-region"), airport: $("m-airport"), runway: $("m-runway"), position: $("m-position"), time: $("m-time"),
       vis: $("m-vis"), windDir: $("m-wind-dir"), windKt: $("m-wind-kt"), range: $("m-range"), gate: $("m-gate"),
+      imagery: $("m-imagery"), buildings: $("m-buildings"), roads: $("m-roads"),
     };
     this.buildAircraftPicker();
     for (const r of this.regions) {
@@ -61,6 +62,7 @@ export class Menu {
       if (saved.windDir !== undefined) this.f.windDir.value = saved.windDir;
       if (saved.windKt !== undefined) this.f.windKt.value = saved.windKt;
       if (saved.radiusKm) this.f.range.value = String(saved.radiusKm);
+      for (const k of ["imagery", "buildings", "roads"]) if (typeof saved[k] === "boolean") this.f[k].checked = saved[k];
     }
     this.fillRunways(saved?.airport === this.f.airport.value ? saved.runway : null);
     this.savedGate = saved?.airport === this.f.airport.value ? saved.gate : null;
@@ -251,12 +253,15 @@ export class Menu {
       windDir: ((+this.f.windDir.value % 360) + 360) % 360,
       windKt: Math.max(0, +this.f.windKt.value || 0),
       radiusKm: +this.f.range.value,
+      imagery: this.f.imagery.checked,
+      buildings: this.f.buildings.checked,
+      roads: this.f.roads.checked,
     };
   }
 
   /**
    * ?autostart&aircraft=f16&airport=KSFO&runway=28R&position=final&time=dusk&wind=280@8&vis=35000&range=25&gate=D55,
-   * or &region=oregon for that region's main airport.
+   * or &region=oregon for that region's main airport; imagery=0, buildings=0, roads=0 turn those layers off.
    */
   readParams(params) {
     const sel = this.selection();
@@ -277,6 +282,9 @@ export class Menu {
     if (params.get("gate") && !params.get("position")) sel.position = "gate";
     if (params.get("vis")) sel.visibilityM = +params.get("vis");
     if (params.get("range")) sel.radiusKm = +params.get("range");
+    for (const k of ["imagery", "buildings", "roads"]) {
+      if (params.has(k)) sel[k] = !["0", "off", "false", "no"].includes(params.get(k).toLowerCase());
+    }
     return sel;
   }
 

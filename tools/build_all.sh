@@ -36,4 +36,17 @@ python3 tools/build_model.py --fgdata "$FG" --model Aircraft/c172p/Models/c172p.
   --exclude 'garmin196' --exclude 'Aircraft/Generic/marker'
 python3 tools/build_sound.py --fgdata "$FG" --aircraft c172p --out site/data/aircraft/c172p/sound
 python3 tools/build_sky.py --fgdata "$FG" --out site/data/sky/stars.json
+
+# OpenStreetMap buildings, roads and railways: Geofabrik's extracts of the
+# states the regions reach into (after the scenery objects, whose ground
+# the buildings stay off).  Then the aerial imagery (after the OSM data,
+# whose busiest tiles get the sharper images).
+OSM="$TS/osm"
+mkdir -p "$OSM"
+for s in oregon california/norcal washington idaho nevada; do
+  f="$OSM/$(basename "$s")-latest.osm.pbf"
+  [ -f "$f" ] || curl -fL --retry 3 -o "$f" "https://download.geofabrik.de/north-america/us/$s-latest.osm.pbf"
+done
+python3 tools/build_osm.py --scenery site/data/scenery $(for f in "$OSM"/*.osm.pbf; do printf -- '--pbf %s ' "$f"; done)
+python3 tools/build_imagery.py --scenery site/data/scenery --cache "$TS/imagery"
 echo "done: site/data rebuilt"

@@ -10,6 +10,7 @@ import { SceneryManager } from "./scene/tiles.js";
 import { Sky, timeForSun } from "./scene/sky.js";
 import { AirportLights } from "./scene/lights.js";
 import { SceneryObjects } from "./scene/objects.js";
+import { OsmLayer } from "./scene/osm.js";
 import { sceneryUniforms } from "./scene/materials.js";
 import { ModelLibrary, loadModel } from "./model/fgmodel.js";
 import { GLTFAircraftModel } from "./model/gltfmodel.js";
@@ -112,11 +113,19 @@ class App {
     this.frame = new RenderFrame(37.6188, -122.375);
     this.sky = new Sky(this.scene, renderer);
     this.lights = new AirportLights(renderer);
-    this.scenery = new SceneryManager({ baseUrl: "data/scenery", frame: this.frame, scene: this.scene, renderer });
+    this.scenery = new SceneryManager({ baseUrl: "data/scenery", frame: this.frame, scene: this.scene, renderer,
+      mobile: this.mobile });
     this.scenery.lightFactory = (lights, mgr) => this.lights.build(lights, mgr);
     this.objects = new SceneryObjects("data/scenery/objects", renderer, { props: this.sim.props });
-    this.scenery.onTileLoaded = (tile) => this.objects.addTile(tile).catch((err) => console.warn("objects", err));
-    this.scenery.onTileUnloaded = (tile) => this.objects.removeTile(tile);
+    this.osm = new OsmLayer(this.scenery, { mobile: this.mobile });
+    this.scenery.onTileLoaded = (tile) => {
+      this.objects.addTile(tile).catch((err) => console.warn("objects", err));
+      this.osm.addTile(tile);
+    };
+    this.scenery.onTileUnloaded = (tile) => {
+      this.objects.removeTile(tile);
+      this.osm.removeTile(tile);
+    };
     await Promise.all([this.scenery.init(), this.objects.init()]);
     fetchJson("data/sky/stars.json").then((s) => this.sky.setStars(s.stars)).catch(() => {});
     jsb.setGroundProvider((lat, lon) => this.scenery.groundQuery(lat, lon));
@@ -382,10 +391,22 @@ class App {
       // Keep the render frame's origin near the aircraft for precision.
       this.frame.setReference(cfg.lat, cfg.lon);
       this.scenery.setFrame(this.frame);
+      // Aerial imagery, OpenStreetMap buildings and roads: a change reloads the tiles.
+      const buildings = sel.buildings !== false, roads = sel.roads !== false;
+      this.scenery.setOptions({ imagery: sel.imagery !== false, osm: buildings || roads });
+      this.osm.setVisible({ buildings, roads });
       setLoading(`Loading scenery around ${cfg.airport.icao}…`, 0);
       await this.scenery.preload(cfg.lat, cfg.lon, Math.min(12, this.radiusKm), (done, total) => {
-        setLoading(`Loading scenery around ${cfg.airport.icao}… (${done}/${total})`, (0.6 * done) / total);
+        setLoading(`Loading scenery around ${cfg.airport.icao}… (${done}/${total})`, (0.5 * done) / total);
       });
+      if (buildings || roads) {
+        setLoading(`Placing buildings and roads around ${cfg.airport.icao}…`, 0.55);
+        await this.osm.settle(cfg.lat, cfg.lon);
+      }
+      if (this.scenery.imagery && sel.imagery !== false) {
+        setLoading("Loading aerial imagery…", 0.6);
+        await this.scenery.imagery.idle(8000);
+      }
       setLoading(`Starting the ${def.short} at ${cfg.airport.icao} runway ${cfg.runway.id}…`, 0.65);
       this.sim.setAircraft(await aircraftData, def.Systems);
       await new Promise((r) => setTimeout(r, 0));
@@ -565,6 +586,7 @@ class App {
       this.sceneryTimer = 1;
       const c = this.debugCamera ?? ac;
       this.scenery.update(c.lat, c.lon, this.radiusKm);
+      this.osm.update(c.lat, c.lon);
       this.checkEasterEgg(ac);
     }
     if (this.sim.fdm.crashed && !this.crashNotified) {

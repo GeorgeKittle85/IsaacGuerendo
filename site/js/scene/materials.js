@@ -2,6 +2,11 @@
 // rendered with small custom shaders.  Land cover gets texture coordinates
 // from world position using FlightGear's xsize/ysize (metres per texture
 // repeat); runways and markings use the BTG texture coordinates.
+//
+// Where a tile has aerial imagery (tools/build_imagery.py), its land cover
+// takes its colour from the photograph instead, and FlightGear's texture
+// only adds fine detail close by; its lakes and rivers show the photograph
+// where it is not water.
 
 import * as THREE from "three";
 
@@ -19,7 +24,7 @@ export const sceneryUniforms = {
   sunElevation: { value: 45 },
 };
 
-const COMMON_VERTEX = /* glsl */ `
+export const COMMON_VERTEX = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_vertex>
   varying vec3 vNormalW;
@@ -27,7 +32,7 @@ const COMMON_VERTEX = /* glsl */ `
   varying float vDist;
 `;
 
-const COMMON_FRAGMENT = /* glsl */ `
+export const COMMON_FRAGMENT = /* glsl */ `
   #include <common>
   #include <logdepthbuf_pars_fragment>
   uniform vec3 sunDir;
@@ -37,6 +42,7 @@ const COMMON_FRAGMENT = /* glsl */ `
   uniform float fogDensity;
   uniform float night;
   uniform vec3 glowColor;
+  uniform vec3 upDir;
   varying vec3 vNormalW;
   varying vec3 vWorldPos;
   varying float vDist;
@@ -60,7 +66,14 @@ const VERTEX = /* glsl */ `
   uniform float lift;
   varying vec2 vUv;
   varying vec2 vUv2;
+  #ifdef USE_SAT
+    attribute vec2 satUv;
+    varying vec2 vSatUv;
+  #endif
   void main() {
+    #ifdef USE_SAT
+      vSatUv = satUv;
+    #endif
     // Painted lines lie on the pavement; lift them a few centimetres (the
     // logarithmic depth buffer ignores polygon offset).
     vec3 p = position + normal * lift;
@@ -93,6 +106,11 @@ const TERRAIN_FRAGMENT = /* glsl */ `
   uniform float specular;
   varying vec2 vUv;
   varying vec2 vUv2;
+  #ifdef USE_SAT
+    uniform sampler2D satMap;
+    uniform float satGain;
+    varying vec2 vSatUv;
+  #endif
   void main() {
     #include <logdepthbuf_fragment>
     vec4 tex = hasMap > 0.5 ? texture2D(map, vUv) : vec4(1.0);
@@ -110,6 +128,26 @@ const TERRAIN_FRAGMENT = /* glsl */ `
       vec3 h = normalize(v + sunDir);
       col += sunColor * specular * pow(max(dot(n, h), 0.0), 24.0);
     }
+    #ifdef USE_SAT
+      // The photograph has its own shading, so the slope only adds part of
+      // the sun's light; satGain scales noon on flat ground to about 1.
+      vec4 sat = texture2D(satMap, vSatUv);
+      if (sat.a > 0.0) {
+        float sunUp = max(dot(upDir, sunDir), 0.0);
+        vec3 satLight = (ambientColor + sunColor * mix(sunUp, ndl, 0.6)) * satGain;
+        // Close by, the land cover texture, shrunk to a few metres a repeat,
+        // adds the detail a 10 m pixel does not have.
+        float detail = 1.0;
+        if (hasMap > 0.5 && vDist < 1500.0) {
+          float lum = dot(texture2D(map, vUv * 7.0).rgb, vec3(0.3, 0.59, 0.11));
+          float avg = dot(textureLod(map, vUv, 16.0).rgb, vec3(0.3, 0.59, 0.11));
+          detail = mix(1.0, clamp(lum / max(avg, 0.04), 0.6, 1.4), 0.4 * (1.0 - smoothstep(150.0, 1500.0, vDist)));
+        }
+        // NAIP is pale next to FlightGear's textures: a little more contrast.
+        vec3 photo = mix(sat.rgb, sat.rgb * sat.rgb * (3.0 - 2.0 * sat.rgb), 0.4);
+        col = mix(col, photo * detail * satLight, sat.a);
+      }
+    #endif
     // City lights: FlightGear's emissive colour, only after dusk.
     col += emissive * night * 4.0;
     gl_FragColor = vec4(applyFog(col), tex.a);
@@ -125,6 +163,11 @@ const WATER_FRAGMENT = /* glsl */ `
   uniform vec3 deepColor;
   varying vec2 vUv;
   varying vec2 vUv2;
+  #ifdef USE_SAT
+    uniform sampler2D satMap;
+    uniform float satGain;
+    varying vec2 vSatUv;
+  #endif
 
   float wave(vec2 p, vec2 dir, float k, float speed) {
     return sin(dot(p, dir) * k + time * speed);
@@ -164,6 +207,19 @@ const WATER_FRAGMENT = /* glsl */ `
     float ripple = clamp(1.0 - vDist / 3000.0, 0.0, 1.0);
     vec3 ng = normalize(mix(nUp, n, ripple));
     col += sunColor * pow(max(dot(ng, h), 0.0), mix(60.0, 180.0, ripple)) * mix(0.6, 1.5, ripple);
+    #ifdef USE_SAT
+      // The photograph knows where the water really is: where it is dark,
+      // water under the sky's reflection and the sun's glint; where it is
+      // light, the land FlightGear's land cover calls water.
+      vec4 sat = texture2D(satMap, vSatUv);
+      if (sat.a > 0.0) {
+        vec3 photo = mix(sat.rgb, sat.rgb * sat.rgb * (3.0 - 2.0 * sat.rgb), 0.4);
+        vec3 lit = photo * (ambientColor + sunColor * max(dot(upDir, sunDir), 0.0)) * satGain;
+        float wet = (1.0 - smoothstep(0.3, 0.46, dot(sat.rgb, vec3(0.3, 0.59, 0.11))))
+          * (1.0 - smoothstep(0.02, 0.07, sat.g - max(sat.r, sat.b)));
+        col = mix(lit, mix(lit, col, 0.8), wet * sat.a);
+      }
+    #endif
     gl_FragColor = vec4(applyFog(col), 1.0);
     #include <colorspace_fragment>
   }
@@ -179,13 +235,20 @@ function baseUniforms() {
     night: sceneryUniforms.night,
     time: sceneryUniforms.time,
     glowColor: sceneryUniforms.glowColor,
+    upDir: sceneryUniforms.upDir,
   };
 }
 
+export { baseUniforms as sceneryBaseUniforms };
+
 const linear = (c) => new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
 
-/** Builds the material for one FlightGear material definition. */
-export function createMaterial(def, texture, hasUv) {
+/**
+ * Builds the material for one FlightGear material definition.  sat: a
+ * uniform {value: texture} with a tile's aerial image, for land cover and
+ * inland water (not runways); the geometry then needs a satUv attribute.
+ */
+export function createMaterial(def, texture, hasUv, sat = null) {
   const uniforms = {
     ...baseUniforms(),
     map: { value: texture },
@@ -194,6 +257,11 @@ export function createMaterial(def, texture, hasUv) {
     lift: { value: def.kind === "marking" ? 0.06 : 0 },
   };
   const defines = hasUv ? { USE_UV_ATTR: "" } : {};
+  if (sat && !hasUv) {
+    defines.USE_SAT = "";
+    uniforms.satMap = sat;
+    uniforms.satGain = { value: 0.72 };
+  }
   if (def.kind === "water") {
     uniforms.deepColor = { value: new THREE.Color(0.02, 0.07, 0.1) };
     return new THREE.ShaderMaterial({
