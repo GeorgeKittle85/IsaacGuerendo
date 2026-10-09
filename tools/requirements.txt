@@ -1,3 +1,5 @@
 # Data conversion tools (tools/build_*.py)
 numpy>=1.22
 Pillow>=9.0
+# tools/build_osm.py: reads OpenStreetMap .osm.pbf extracts
+osmium>=4.0

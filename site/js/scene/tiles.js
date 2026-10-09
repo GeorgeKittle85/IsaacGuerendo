@@ -5,11 +5,17 @@
 // JSBSim's ground queries (elevation, normal, surface material) by casting a
 // ray down the local vertical onto the actual tile triangles, like
 // FlightGear's ground cache does.
+//
+// Optional layers ride along with each tile: its aerial image (imagery.js)
+// on the land cover, and its OpenStreetMap buildings and roads (osm.js),
+// which the tile worker sets on the terrain as the tile loads.
 
 import * as THREE from "three";
 import { enuBasis, geodeticToEcef } from "./geo.js";
 import { createMaterial } from "./materials.js";
 import { fetchGz, prepareTile, prepareData, CollisionGrid } from "./tiledata.js";
+import { buildMeshes } from "./osmdata.js";
+import { Imagery } from "./imagery.js";
 
 export { decodeTile } from "./tiledata.js";
 
@@ -69,17 +75,28 @@ class Tile {
     this.group.matrix.copy(frame.enuMatrixAtEcef(data.center, data.lat, data.lon));
     this.group.matrixWorldNeedsUpdate = true;
     this.group.name = `tile-${info.id}`;
+    this.manager = manager;
 
     const meshes = [];
     const t = data.terrain;
+    // The tile's own materials when its land cover wears its aerial image.
+    this.ownMaterials = [];
     if (t.idx.length) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.BufferAttribute(t.pos, 3));
       geo.setAttribute("normal", new THREE.BufferAttribute(prep.normals, 3));
       geo.setIndex(new THREE.BufferAttribute(t.idx, 1));
+      if (prep.satUv && manager.imagery) {
+        geo.setAttribute("satUv", new THREE.BufferAttribute(prep.satUv, 2));
+        this.sat = { value: manager.imagery.placeholder };
+        this.satLevel = -1;
+      }
       const mats = t.groups.map((g, i) => {
         geo.addGroup(g.start, g.count, i);
-        return manager.material(g.material, false);
+        if (!this.sat) return manager.material(g.material, false);
+        const m = manager.satMaterial(g.material, this.sat);
+        if (m.userData.ownedByTile) this.ownMaterials.push(m);
+        return m;
       });
       geo.computeBoundingSphere();
       const mesh = new THREE.Mesh(geo, mats);
@@ -110,6 +127,7 @@ class Tile {
       if (pts) this.group.add(pts);
     }
     this.meshes = meshes;
+    this.osm = prep.osm ?? null; // the landmarks' meshes, for osm.js
     this.grid = CollisionGrid.from(meshes, prep.grid);
     this.zmin = prep.zmin;
     this.zmax = prep.zmax;
@@ -176,15 +194,26 @@ class Tile {
   }
 
   dispose() {
+    this.disposed = true;
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
     });
+    for (const m of this.ownMaterials) m.dispose();
+    if (this.sat && this.sat.value !== this.manager?.imagery?.placeholder) this.sat.value.dispose();
   }
 }
 
 export class SceneryManager {
-  constructor({ baseUrl, frame, scene, renderer }) {
+  constructor({ baseUrl, frame, scene, renderer, mobile = false }) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.mobile = mobile;
+    // Aerial imagery and OpenStreetMap buildings and roads, when there are any.
+    this.options = { imagery: true, osm: true };
+    this.imagery = null;
+    this.osmIndex = null;
+    this.placed = new Map(); // tile id -> placed OSM data, without a worker
+    this.workerOf = new Map(); // tile id -> the worker holding its placed OSM data
+    this.epoch = 0;
     this.frame = frame;
     this.scene = scene;
     this.renderer = renderer;
@@ -203,9 +232,48 @@ export class SceneryManager {
   }
 
   async init() {
-    const res = await fetch(`${this.baseUrl}/index.json`);
-    this.index = await res.json();
+    const json = (url) => fetch(url).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+    const [index, imagery, osm] = await Promise.all([
+      fetch(`${this.baseUrl}/index.json`).then((r) => r.json()),
+      json(`${this.baseUrl}/imagery/index.json`),
+      json(`${this.baseUrl}/osm/index.json`),
+    ]);
+    this.index = index;
     this.materialDefs = this.index.materials;
+    if (imagery) this.imagery = new Imagery(this.baseUrl, imagery, this.renderer, { mobile: this.mobile });
+    this.osmIndex = osm?.tiles ?? null;
+  }
+
+  /** {imagery, osm}: what the tiles load with.  A change reloads them. */
+  setOptions(opts) {
+    const next = { ...this.options, ...opts };
+    if (next.imagery === this.options.imagery && next.osm === this.options.osm) return;
+    this.options = next;
+    this.clear();
+  }
+
+  /** Unloads every tile. */
+  clear() {
+    // Tiles still loading belong to the old options: loadTile drops them.
+    this.epoch = (this.epoch ?? 0) + 1;
+    this.loading.clear();
+    for (const [id, tile] of this.tiles) {
+      this.onTileUnloaded?.(tile);
+      this.root.remove(tile.group);
+      tile.dispose();
+      this.tiles.delete(id);
+    }
+  }
+
+  /** A land-cover or water material wearing a tile's aerial image (sat: the tile's {value: texture}). */
+  satMaterial(index, sat) {
+    const def = this.materialDefs[index];
+    // The sea and the bays keep FlightGear's water: the photographs' sun
+    // glints and swell would show through.
+    if (def.name === "Ocean") return this.material(index, false);
+    const m = createMaterial(def, this.texture(def.texture), false, sat);
+    m.userData.ownedByTile = true;
+    return m;
   }
 
   texture(path) {
@@ -274,48 +342,111 @@ export class SceneryManager {
     return this.surfaceAt(lat, lon)?.elev ?? null;
   }
 
-  /** Decoding, normals and the collision grid happen in a worker when possible. */
-  prepare(url) {
-    if (this.worker === undefined) {
-      try {
-        this.worker = new Worker(new URL("./tile-worker.js", import.meta.url), { type: "module" });
-        this.workerJobs = new Map();
-        this.workerSeq = 0;
-        this.worker.onmessage = (e) => {
-          const job = this.workerJobs.get(e.data.id);
-          this.workerJobs.delete(e.data.id);
-          if (e.data.error) job?.reject(new Error(e.data.error));
-          else job?.resolve(e.data.prep);
-        };
-        this.worker.onerror = (e) => {
-          console.warn("tile worker failed, decoding on the main thread:", e.message);
-          for (const job of this.workerJobs.values()) job.reject(new Error("tile worker failed"));
-          this.workerJobs.clear();
-          this.worker = null;
-        };
-      } catch (err) {
-        this.worker = null;
+  /** Decoding, normals and the collision grid (and the OSM layer) happen in a worker when possible. */
+  prepare(info) {
+    const url = `${this.baseUrl}/${info.file}`;
+    const satBounds = this.options.imagery ? this.imagery?.bounds(info.id) ?? null : null;
+    const osmUrl = this.options.osm && this.osmIndex?.[info.id] ? `${this.baseUrl}/osm/${info.id}.bin.gz` : null;
+    const local = () => Promise.all([fetchGz(url), osmUrl ? fetchGz(osmUrl).catch(() => null) : null])
+      .then(([buf, osm]) => {
+        const prep = prepareTile(buf, { satBounds, osm });
+        if (prep.placed) this.placed.set(info.id, prep.placed);
+        delete prep.placed;
+        return prep;
+      });
+    const abs = (u) => new URL(u, document.baseURI).href;
+    return this.post({ url: abs(url), key: info.id, satBounds, osmUrl: osmUrl && abs(osmUrl) })
+      .then((r) => r.prep, local);
+  }
+
+  /** The meshes of a tile's OSM chunk (osmdata.js buildMeshes), or null. */
+  requestChunk(id, chunk) {
+    const local = () => {
+      const p = this.placed.get(id);
+      return p ? buildMeshes(p, chunk) : null;
+    };
+    return this.post({ key: id, chunk }).then((r) => r.mesh, local);
+  }
+
+  /** The tile is gone: its placed OSM data can go too. */
+  dropPlaced(id) {
+    this.placed.delete(id);
+    this.workerOf.get(id)?.postMessage({ drop: id });
+    this.workerOf.delete(id);
+  }
+
+  /**
+   * A job for the tile workers; rejects when there are none.  Tiles go to
+   * the least busy worker; a tile's chunk jobs go to the worker that holds
+   * its placed OSM data.
+   */
+  post(msg) {
+    if (this.workers === undefined) {
+      this.workers = [];
+      this.workerJobs = new Map();
+      this.workerSeq = 0;
+      const n = (navigator.hardwareConcurrency ?? 2) >= 4 ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        try {
+          const w = new Worker(new URL("./tile-worker.js", import.meta.url), { type: "module" });
+          w.busy = 0;
+          w.onmessage = (e) => {
+            const job = this.workerJobs.get(e.data.id);
+            this.workerJobs.delete(e.data.id);
+            w.busy--;
+            if (e.data.error) job?.reject(new Error(e.data.error));
+            else job?.resolve(e.data);
+          };
+          w.onerror = (e) => {
+            console.warn("tile worker failed, decoding on the main thread:", e.message);
+            for (const [id, job] of this.workerJobs) {
+              if (job.worker === w) {
+                job.reject(new Error("tile worker failed"));
+                this.workerJobs.delete(id);
+              }
+            }
+            this.workers = this.workers.filter((x) => x !== w);
+          };
+          this.workers.push(w);
+        } catch (err) {
+          break;
+        }
       }
     }
-    if (!this.worker) return fetchGz(url).then(prepareTile);
+    let w;
+    if (msg.chunk !== undefined) w = this.workerOf.get(msg.key);
+    else {
+      w = this.workers.reduce((a, b) => (!a || b.busy < a.busy ? b : a), null);
+      if (w) this.workerOf.set(msg.key, w);
+    }
+    if (!w || !this.workers.includes(w)) return Promise.reject(new Error("no tile worker"));
     const id = ++this.workerSeq;
+    w.busy++;
     return new Promise((resolve, reject) => {
-      this.workerJobs.set(id, { resolve, reject });
-      this.worker.postMessage({ id, url: new URL(url, document.baseURI).href });
-    }).catch(() => fetchGz(url).then(prepareTile));
+      this.workerJobs.set(id, { resolve, reject, worker: w });
+      w.postMessage({ ...msg, id });
+    });
   }
 
   async loadTile(info) {
     if (this.tiles.has(info.id)) return this.tiles.get(info.id);
     if (this.loading.has(info.id)) return this.loading.get(info.id);
+    const epoch = this.epoch;
     const p = (async () => {
-      const prep = info.ocean !== undefined ? prepareData(oceanTileData(info)) : await this.prepare(`${this.baseUrl}/${info.file}`);
+      const prep = info.ocean !== undefined ? prepareData(oceanTileData(info)) : await this.prepare(info);
+      if (epoch !== this.epoch) {
+        this.dropPlaced(info.id);
+        return null;
+      }
       const tile = new Tile(info, prep, this);
       this.tiles.set(info.id, tile);
       this.root.add(tile.group);
       this.onTileLoaded?.(tile);
+      if (this.lastPos) this.imagery?.update(tile, this.distanceKm(info, this.lastPos.lat, this.lastPos.lon));
       return tile;
-    })().finally(() => this.loading.delete(info.id));
+    })().finally(() => {
+      if (this.loading.get(info.id) === p) this.loading.delete(info.id);
+    });
     this.loading.set(info.id, p);
     return p;
   }
@@ -331,6 +462,7 @@ export class SceneryManager {
   /** Loads tiles within `radiusKm` of (lat, lon), unloads far ones. */
   update(lat, lon, radiusKm = 30) {
     if (!this.index) return [];
+    this.lastPos = { lat, lon };
     const wanted = this.index.tiles
       .map((t) => ({ t, d: this.distanceKm(t, lat, lon) }))
       .filter((x) => x.d <= radiusKm)
@@ -341,19 +473,29 @@ export class SceneryManager {
       if (this.loading.size >= 3) break;
       started.push(this.loadTile(t).catch((err) => console.warn("tile", t.id, err)));
     }
+    const kept = [];
     for (const [id, tile] of this.tiles) {
-      if (this.distanceKm(tile.info, lat, lon) > radiusKm * 1.4) {
+      const d = this.distanceKm(tile.info, lat, lon);
+      if (d > radiusKm * 1.4) {
         this.onTileUnloaded?.(tile);
         this.root.remove(tile.group);
         tile.dispose();
         this.tiles.delete(id);
+      } else {
+        kept.push({ tile, d });
       }
+    }
+    if (this.imagery) {
+      // Nearest first: they get the sharper images.
+      this.imagery.beginPass();
+      for (const { tile, d } of kept.sort((a, b) => a.d - b.d)) this.imagery.update(tile, d);
     }
     return started;
   }
 
   /** Loads everything needed around a start position before flying. */
   async preload(lat, lon, radiusKm, onProgress) {
+    this.lastPos = { lat, lon };
     const wanted = this.index.tiles.filter((t) => this.distanceKm(t, lat, lon) <= radiusKm)
       .sort((a, b) => this.distanceKm(a, lat, lon) - this.distanceKm(b, lat, lon));
     let done = 0;

@@ -85,6 +85,37 @@ Used by `tools/build_groundnets.py` (the scenery ids are in each
 ground networks, and the ATC taxi routes and ramp starts of the airports
 TerraSync has no ground network for.
 
+## OpenStreetMap
+
+- Website: https://www.openstreetmap.org/
+- License: Open Database License 1.0 (https://opendatacommons.org/licenses/odbl/1-0/);
+  © OpenStreetMap contributors (https://www.openstreetmap.org/copyright)
+- Extracts: Geofabrik (https://download.geofabrik.de/), dated 2026-10-08
+
+`site/data/scenery/osm/` (buildings, roads and railways, made by
+`tools/build_osm.py` from the extracts of Oregon, Northern California,
+Washington, Idaho and Nevada) is a Derivative Database of OpenStreetMap
+data and is available under the Open Database License 1.0, not the GPL.
+The website credits OpenStreetMap's contributors in its start menu.
+
+## USGS National Map: NAIP aerial imagery
+
+- Service: https://imagery.nationalmap.gov/arcgis/rest/services/USGSNAIPImagery/ImageServer
+- Source: the USDA's National Agriculture Imagery Program (NAIP), served by
+  the USGS National Map
+- License: public domain (works of the US federal government)
+
+`site/data/scenery/imagery/` holds the images `tools/build_imagery.py`
+downloads for each scenery tile, resampled and converted to WebP.
+
+## earcut
+
+- Sources: https://github.com/mapbox/earcut
+- License: ISC (see `site/vendor/earcut.LICENSE`), Copyright (c) 2024, Mapbox
+
+`site/vendor/earcut.js` (version 3.0.2) triangulates the roofs of the
+OpenStreetMap buildings.
+
 ## US Census Bureau
 
 - Website: https://www.census.gov/geographies/mapping-files/time-series/geo/carto-boundary-file.html

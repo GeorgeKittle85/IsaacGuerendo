@@ -1,7 +1,10 @@
-// Scenery tile data: decoding, normals and the ground-collision grid.
+// Scenery tile data: decoding, normals and the ground-collision grid, plus
+// the tile's aerial image coordinates and OpenStreetMap layer (osmdata.js).
 //
 // Pure functions on typed arrays with no three.js dependency, so they run in
 // the tile worker (tile-worker.js) as well as on the main thread.
+
+import { buildMeshes, decodeOsm, meshTransfers, placeOsm, satUvs } from "./osmdata.js";
 
 export async function fetchGz(url) {
   const res = await fetch(url);
@@ -197,13 +200,19 @@ function rayTriangle(o, d, m, t) {
   return (e2x * qx + e2y * qy + e2z * qz) * inv;
 }
 
-/** Everything a tile needs that is expensive to compute: runs in the worker. */
-export function prepareTile(buf) {
-  return prepareData(decodeTile(buf));
+/**
+ * Everything a tile needs that is expensive to compute: runs in the worker.
+ * opts: {satBounds: the aerial image's [lat0, lon0, lat1, lon1], osm: the
+ * tile's OSM file (ArrayBuffer)}.  With OSM data the result has `osm`, the
+ * landmarks' meshes, and `placed`, what the other meshes are built from
+ * later (buildMeshes); `placed` stays with the caller.
+ */
+export function prepareTile(buf, opts = {}) {
+  return prepareData(decodeTile(buf), opts);
 }
 
 /** prepareTile() for tile data that is already decoded (or generated: ocean tiles). */
-export function prepareData(data) {
+export function prepareData(data, opts = {}) {
   const meshes = [];
   const t = data.terrain;
   let normals = null;
@@ -219,8 +228,21 @@ export function prepareData(data) {
       if (m.pos[i] > zmax) zmax = m.pos[i];
     }
   }
-  const grid = new CollisionGrid(meshes).toData();
-  return { data, normals, grid, zmin, zmax };
+  const collision = new CollisionGrid(meshes);
+  const out = { data, normals, grid: collision.toData(), zmin, zmax };
+  if (opts.satBounds && t.idx.length) out.satUv = satUvs(data, t.pos, opts.satBounds);
+  if (opts.osm) {
+    // The terrain loads whatever happens to its buildings and roads.
+    try {
+      out.placed = placeOsm(decodeOsm(opts.osm), data, collision);
+      out.osm = buildMeshes(out.placed, "major");
+    } catch (err) {
+      console.warn("OSM data:", err.message);
+      delete out.placed;
+      delete out.osm;
+    }
+  }
+  return out;
 }
 
 /** Transferable buffers of a prepared tile (for postMessage). */
@@ -232,5 +254,7 @@ export function transferList(prep) {
   if (d.surface) { add(d.surface.pos); add(d.surface.nrm); add(d.surface.uv); add(d.surface.idx); }
   for (const l of d.lights) { add(l.pos); add(l.nrm); }
   add(prep.normals); add(prep.grid.start); add(prep.grid.items);
+  add(prep.satUv);
+  if (prep.osm) for (const b of meshTransfers(prep.osm)) out.add(b);
   return [...out];
 }
